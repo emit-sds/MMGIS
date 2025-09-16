@@ -283,8 +283,11 @@ function drawLegends(tools, _legend, layerUUID, display_name, opacity, shift) {
 
     const isHeader = layerConfig.type === 'header'
 
+    // Orientation of the legend, 'vertical' (default) or 'horizontal'
+    const orientation = layerConfig.variables?.legendOrientation || 'vertical'
+
     // If option to hide layer name in legend is checked in the configuration
-    const hideLegendLayerName = layerConfig.variables?.hideLegendLayerName || false;
+    const hideLegendLayerName = layerConfig.variables?.hideLegendLayerName || false
 
     var c = tools
         .append('div')
@@ -388,7 +391,8 @@ function drawLegends(tools, _legend, layerUUID, display_name, opacity, shift) {
                 .append('div')
                 .attr('class', 'row')
                 .style('display', 'flex')
-                .style('margin', '0px 0px 8px 9px')
+                .style('margin', orientation === 'horizontal' ? '0px 8px 8px 0px' : '0px 0px 8px 9px')
+                .style('flex-direction', orientation === 'horizontal' ? 'row' : 'row')
 
             if (
                 shape == 'circle' ||
@@ -453,13 +457,13 @@ function drawLegends(tools, _legend, layerUUID, display_name, opacity, shift) {
             }
 
             r.append('div')
-            .style('margin-left', '5px')
+            .style('margin-left', orientation === 'horizontal' ? '8px' : '5px')
             .style('height', '100%')
             .style('line-height', '19px')
             .style('font-size', '14px')
             .style('overflow', 'hidden')
             .style('white-space', 'nowrap')
-            .style('max-width', '270px')
+            .style('max-width', orientation === 'horizontal' ? 'none' : '270px')
             .style('text-overflow', 'ellipsis')
             .attr('title', _legend[d].value)
             .text(_legend[d].value)
@@ -475,23 +479,74 @@ function drawLegends(tools, _legend, layerUUID, display_name, opacity, shift) {
             .append('div')
             .attr('class', 'row')
             .style('display', 'flex')
-            .style('margin', '0px 0px 8px 8px')
-        var gradient = r
+            .style('flex-direction', 'column')
+            .style('margin', orientation === 'horizontal' ? '8px 0px 8px 0px' : '0px 0px 8px 8px')
+            .style('width', '100%') // Ensure full width
+
+        // Container for gradient and labels
+        var legendContainer = r
             .append('div')
-            .style('width', '19px')
-            .style('height', 19 * lastContinues.length + 'px')
+            .style('display', 'flex')
+            .style('flex-direction', orientation === 'horizontal' ? 'column' : 'row')
+            .style('align-items', orientation === 'horizontal' ? 'flex-start' : 'center')
+            .style('gap', orientation === 'horizontal' ? '4px' : '8px')
+            .style('width', orientation === 'horizontal' ? '100%' : 'auto') // Full width in horizontal mode
+
+        // Calculate gradient width based on container width and number of sections
+        const gradientWidth = orientation === 'horizontal' ? '100%' : '19px'
+        
+        var gradient = legendContainer
+            .append('div')
+            .style('width', gradientWidth)
+            .style('height', orientation === 'horizontal' ? '19px' : (19 * lastContinues.length + 'px'))
             .style('border', '1px solid black')
-        var values = r.append('div')
+            .style('flex-shrink', '0')
+
+        // Calculate available width per label in horizontal mode
+        const containerWidth = orientation === 'horizontal' ? r.node().getBoundingClientRect().width : 'auto'
+        const labelWidth = orientation === 'horizontal' ? (containerWidth / lastContinues.length) : 'auto'
+        
+        const calculateFontSize = () => {
+            if (orientation === 'horizontal') {
+                const maxLabelLength = Math.max(...lastContinues.map(c => String(c.value).length))
+                const baseSize = 14
+                const minSize = 8
+                const maxSize = 14
+                const averageCharWidth = 8
+                const availableWidth = labelWidth * 0.9 // Leave some margin
+                const calculatedSize = (availableWidth / (maxLabelLength * averageCharWidth)) * baseSize
+                return Math.min(maxSize, Math.max(minSize, calculatedSize))
+            }
+            return 14
+        }
+
+        const fontSize = calculateFontSize()
+
+        var values = legendContainer
+            .append('div')
+            .style('display', 'flex')
+            .style('flex-direction', orientation === 'horizontal' ? 'row' : 'column')
+            .style('justify-content', 'flex-start') // Left justify
+            .style('width', orientation === 'horizontal' ? '100%' : 'auto')
+            .style('height', orientation === 'horizontal' ? 'auto' : (19 * lastContinues.length + 'px'))
+            .style('gap', orientation === 'horizontal' ? '0' : '0')
+
         var gradientArray = []
         for (let i = 0; i < lastContinues.length; i++) {
             let v = values
                 .append('div')
-                .style('margin-left', '5px')
+                .style('margin', '0')
+                .style('padding', '0')
                 .style('height', '19px')
                 .style('line-height', '19px')
-                .style('font-size', '14px')
+                .style('font-size', `${fontSize}px`)
                 .style('position', 'relative')
                 .style('white-space', 'nowrap')
+                .style('text-align', orientation === 'horizontal' ? 'center' : 'left') // Center text in horizontal mode
+                .style('width', orientation === 'horizontal' ? `${100/lastContinues.length}%` : 'auto')
+                .style('overflow', 'hidden')
+                .style('text-overflow', 'ellipsis')
+                .attr('title', lastContinues[i].value)
                 .text(lastContinues[i].value)
 
             if (lastContinues[i].shape == 'continuous') {
@@ -500,16 +555,16 @@ function drawLegends(tools, _legend, layerUUID, display_name, opacity, shift) {
                     .style('width', '3px')
                     .style('height', '1px')
                     .style('background', 'white')
-                    .style('left', '-23px')
-                    .style('top', '10px')
+                    .style(orientation === 'horizontal' ? 'top' : 'left', orientation === 'horizontal' ? '-23px' : '-23px')
+                    .style(orientation === 'horizontal' ? 'left' : 'top', orientation === 'horizontal' ? '10px' : '10px')
                     .style('mix-blend-mode', 'difference')
                 v.append('div')
                     .style('position', 'absolute')
                     .style('width', '3px')
                     .style('height', '1px')
                     .style('background', 'white')
-                    .style('left', '-9px')
-                    .style('top', '10px')
+                    .style(orientation === 'horizontal' ? 'top' : 'left', orientation === 'horizontal' ? '-9px' : '-9px')
+                    .style(orientation === 'horizontal' ? 'left' : 'top', orientation === 'horizontal' ? '10px' : '10px')
                     .style('mix-blend-mode', 'difference')
 
                 let color = lastContinues[i].color
@@ -536,7 +591,9 @@ function drawLegends(tools, _legend, layerUUID, display_name, opacity, shift) {
 
         gradient.style(
             'background',
-            'linear-gradient(to bottom, ' + gradientArray.join(',') + ')'
+            orientation === 'horizontal'
+                ? 'linear-gradient(to right, ' + gradientArray.join(',') + ')'
+                : 'linear-gradient(to bottom, ' + gradientArray.join(',') + ')'
         )
     }
 }
