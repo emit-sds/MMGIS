@@ -29,7 +29,8 @@ import LanguageIcon from "@mui/icons-material/Language"; // Tile
 import GridViewIcon from "@mui/icons-material/GridView"; // Vector tile
 import ViewInArIcon from "@mui/icons-material/ViewInAr"; // Model
 import AirIcon from "@mui/icons-material/Air"; // Velocity
-import ImageIcon from '@mui/icons-material/Image'; // Image
+import ImageIcon from "@mui/icons-material/Image"; // Image
+import VideoFileIcon from "@mui/icons-material/VideoFile"; // Video
 import AddIcon from "@mui/icons-material/Add";
 
 import VisibilityIcon from "@mui/icons-material/Visibility";
@@ -391,6 +392,10 @@ export default function Layers() {
                     case "image":
                       iconType = <ImageIcon fontSize="small" />;
                       color = "#b0518f";
+                      break;
+                    case "video":
+                      iconType = <VideoFileIcon fontSize="small" />;
+                      color = "#7b2323";
                       break;
                     default:
                   }
