@@ -404,6 +404,7 @@ function drawLegends(tools, _legend, layerUUID, display_name, opacity, shift) {
                 color: _legend[d].color,
                 shape: shape,
                 value: _legend[d].value,
+                propertyValue: _legend[d].propertyValue,
             })
             lastShape = shape
         } else {
@@ -524,6 +525,7 @@ function drawLegends(tools, _legend, layerUUID, display_name, opacity, shift) {
             .style('flex-direction', 'column')
             .style('margin', orientation === 'horizontal' ? '8px 0px 8px 0px' : '0px 0px 8px 8px')
             .style('width', '100%') // Ensure full width
+            .style('position', 'relative') // Add relative positioning for absolute positioned children
 
         // Container for gradient and labels
         var legendContainer = r
@@ -793,7 +795,7 @@ function drawLegends(tools, _legend, layerUUID, display_name, opacity, shift) {
             // Extract units from all visible labels
             const values = visibleLabels.map(item => item.value)
             const { units } = extractUnits(values)
-            
+
             if (units) {
                 const unitsLabel = r
                     .append('div')
@@ -952,12 +954,12 @@ function drawLegends(tools, _legend, layerUUID, display_name, opacity, shift) {
                     const fraction = index - lowerIndex
                     
                     if (lowerIndex === upperIndex) {
-                        // Exact match
-                        value = legendEntries[lowerIndex].value
+                        // Prioritize propertyValue, if it exists, over value
+                        value = legendEntries[lowerIndex].propertyValue || legendEntries[lowerIndex].value
                     } else {
                         // Interpolate between continuous values
-                        const lowerValue = parseFloat(legendEntries[lowerIndex].value) || 0
-                        const upperValue = parseFloat(legendEntries[upperIndex].value) || 0
+                        const lowerValue = parseFloat(legendEntries[lowerIndex].propertyValue || legendEntries[lowerIndex].value) || 0
+                        const upperValue = parseFloat(legendEntries[upperIndex].propertyValue || legendEntries[upperIndex].value) || 0
                         const interpolatedValue = lowerValue + (upperValue - lowerValue) * fraction
                         value = interpolatedValue.toFixed(3).replace(/\.?0+$/, '') // Remove trailing zeros
                     }
@@ -965,7 +967,7 @@ function drawLegends(tools, _legend, layerUUID, display_name, opacity, shift) {
                     // For discrete legends, map position to discrete bands
                     const bandIndex = Math.floor(position * legendEntries.length)
                     const clampedIndex = Math.min(bandIndex, legendEntries.length - 1)
-                    value = legendEntries[clampedIndex].value
+                    value = legendEntries[clampedIndex].propertyValue || legendEntries[clampedIndex].value
                 }
                 
                 tooltip
