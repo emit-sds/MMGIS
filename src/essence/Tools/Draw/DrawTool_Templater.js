@@ -526,8 +526,6 @@ const DrawTool_Templater = {
             }
         }
 
-        console.log(usedValues)
-
         if ((response.newValue || '').indexOf('#') !== -1) {
             // Actually increment the incrementer for the first time
             let bestVal = 0
