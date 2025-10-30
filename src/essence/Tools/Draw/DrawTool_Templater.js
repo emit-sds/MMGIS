@@ -526,6 +526,8 @@ const DrawTool_Templater = {
             }
         }
 
+        console.log(usedValues)
+
         if ((response.newValue || '').indexOf('#') !== -1) {
             // Actually increment the incrementer for the first time
             let bestVal = 0
@@ -536,6 +538,7 @@ const DrawTool_Templater = {
             usedValues.forEach((v) => {
                 if (bestVal === v) bestVal++
             })
+            response.newValue = response.newValue.replace('#', bestVal)
         } else if (existingProperties) {
             let numVal = response.newValue.replace(start, '').replace(end, '')
             if (numVal != '#') {
@@ -1722,11 +1725,11 @@ const DrawTool_Templater = {
                             )
                         else
                             CursorInfo.update(
-                                `Too many intersected features for templating. Using fallbacks.`,
+                                `Multiple intersected features for templating. Using fallbacks.`,
                                 5000,
                                 true,
                                 null,
-                                '#e9ff26',
+                                '#08aeea',
                                 'black',
                                 null,
                                 null,
