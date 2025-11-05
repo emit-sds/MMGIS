@@ -3,7 +3,7 @@
     height: 40px;
     width: 100%;
     position: absolute;
-    bottom: -40px;
+    bottom: 0px;
     left: 0px;
     margin: 0;
     z-index: 77777;
@@ -19,6 +19,11 @@
 
 #mmgisTimeUI {
     display: flex;
+    flex-direction: column;
+}
+#mmgisTimeUITopBar {
+    display: flex;
+    height: 40px;
 }
 #mmgisTimeUI .vertDiv {
     height: 40px;
@@ -95,6 +100,7 @@
     flex: 1;
     position: relative;
     user-select: none;
+    overflow: hidden;
 }
 #mmgisTimeUITimelineSlider {
     width: 100%;
@@ -444,17 +450,19 @@
     background: rgb(96, 78, 26, 0.7);
     transition: opacity 0.2s ease-out;
     z-index: -1;
+    max-width: 100%;
 }
 
 /* Middle drag handle for range extent */
 #mmgisTimeUITimelineExtentHandle {
     position: absolute;
-    bottom: -8px;
+    bottom: 2px;
     transform: translate(-50%, -50%);
     width: 24px;
     height: 16px;
-    opacity: 0.5;
-    background: var(--color-a);
+    opacity: 0.4;
+    border-radius: 3px;
+    background: var(--color-h);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -464,24 +472,18 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 #mmgisTimeUITimelineExtentHandle:hover {
-    background: var(--color-a-5);
     opacity: 1;
 }
 #mmgisTimeUITimelineExtentHandle:active {
     cursor: grabbing;
     opacity: 1;
-    background: var(--color-a1);
 }
 #mmgisTimeUITimelineExtentHandle i {
-    color: var(--color-a6);
+    color: var(--color-a-5);
     font-size: 16px;
     line-height: 16px;
     pointer-events: none;
 }
-#mmgisTimeUITimelineExtentHandle:hover i {
-    color: var(--color-h);
-}
-
 /* Subtle tick flash on Live update (title text) */
 #mmgisTimeUIEndWrapper > span.flash {
     animation: mmgis-time-text-flash 0.35s ease-out;
@@ -495,27 +497,117 @@
 .timeUIRangeShiftBtn {
     position: absolute;
     bottom: 0px;
-    width: 20px;
-    height: 16px;
-    opacity: 0.5;
-    background: var(--color-a);
+    width: 14px;
+    height: 40px;
+    padding-top: 4px;
+    opacity: 0.4;
     display: flex;
     align-items: center;
+    color: var(--color-h);
     justify-content: center;
     cursor: pointer;
-    z-index: 10;
     transition: background 0.15s ease-in-out, opacity 0.15s ease-in-out;
     pointer-events: all;
 }
 .timeUIRangeShiftBtn:hover {
-    background: var(--color-a-5);
     opacity: 1
 }
-.timeUIRangeShiftBtn i {
-    color: var(--color-a6);
-    font-size: 14px;
-    line-height: 14px;
+.timeUIRangeShiftBtn i::before {
+    font-size: 48px !important;
 }
-.timeUIRangeShiftBtn:hover i {
+
+/* Expanded TimeUI Styles */
+#timeUI.expanded {
+    height: 145px;
+}
+
+#mmgisTimeUIExpandedContent {
+    display: none;
+    background: rgba(0, 0, 0, 0.8);
+    width: 100%;
+    height: 105px;
+    padding: 5px;
+    transition: all 0.2s ease-in-out;
+    overflow: hidden;
+}
+
+#mmgisTimeUIExpandedContent.show {
+    display: block;
+}
+
+.mmgisTimeUIExpandedRow {
+    display: flex;
+    align-items: center;
+    height: 32px;
+    margin-bottom: 0px;
+    position: relative;
+}
+
+.mmgisTimeUIExpandedRowRange {
+    position: absolute;
+    bottom: 1px;
+    height: 2px;
+    background: var(--color-h);
+    opacity: 0.8;
+    transition: left 0.2s ease-in-out, width 0.2s ease-in-out;
+    z-index: 1;
+    pointer-events: none;
+}
+
+.mmgisTimeUIExpandedRowContainer {
+    position: relative;
+    z-index: 2;
+    flex: 1;
+    justify-content: space-between;
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 5px 0;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-a3) transparent;
+}
+
+.mmgisTimeUIExpandedRowContainer::-webkit-scrollbar {
+    height: 6px;
+}
+
+.mmgisTimeUIExpandedRowContainer::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.mmgisTimeUIExpandedRowContainer::-webkit-scrollbar-thumb {
+    background: var(--color-a3);
+    border-radius: 3px;
+}
+
+.mmgisTimeUIExpandedRowContainer::-webkit-scrollbar-thumb:hover {
+    background: var(--color-a4);
+}
+
+.mmgisTimeUIExpandedItem {
+    background: var(--color-a);
+    color: var(--color-a7);
+    padding: 6px 14px;
+    border-right: 1px solid var(--color-a2);
+    box-sizing: border-box;
+    font-size: 12px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    flex-shrink: 0;
+    user-select: none;
+    flex: 1;
+    text-align: center;
+    opacity: 0.75;
+}
+
+.mmgisTimeUIExpandedItem:hover {
+    background: var(--color-a-5);
     color: var(--color-h);
+}
+
+.mmgisTimeUIExpandedItem.selected {
+    background: var(--color-o);
+    color: white;
+    font-weight: bold;
 }
