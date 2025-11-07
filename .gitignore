@@ -6,6 +6,7 @@
 /API/logs/*
 /Missions/*
 !/Missions/.gitkeep
+/private/api/spice/kernels/*
 
 #Nested repo where private backend might reside
 /API/MMGIS-Private-Backend
@@ -16,10 +17,17 @@
 /config/pre/toolConfigs.json
 /src/pre/tools.js
 
+/spice/kernels/*
+!/spice/kernels/.gitkeep
+/Missions/spice-kernels-conf.json
+!/Missions/spice-kernels-conf.example.json
+
 /build/*
 /data/*
 *__pycache__
 
 sessions
+.terraform/
+.terraform.lock.hcl
 
 #tools

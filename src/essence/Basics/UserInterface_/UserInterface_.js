@@ -49,6 +49,8 @@ var UserInterface = {
     toolsScreen: null,
     toolsSplit: null,
     toolbar: null,
+    toolPanel: null,
+    toolPanelDrag: null,
     helpOn: true,
     layerUpdatedControl: null,
     init: function () {
@@ -60,7 +62,7 @@ var UserInterface = {
         // prettier-ignore
         const topBarMarkup = [
             "<div id='topBar'>",
-                "<div id='topBarLeft'>",
+                "<div id='topBarLeft' class='hideScrollbar'>",
                     "<div id='topBarMain'>",
                         "<div id='topBarTitle'>",
                             `<div id='topBarTitleName' tabindex='200'>`,
@@ -69,9 +71,9 @@ var UserInterface = {
                         "</div>",
                     "</div>",
                     "<div id='topBarSecondary'>",
-                        "<div class='mainInfo' title='Go to featured item'>",
-                        "</div>",
                         "<div class='mainDescription' title='Go to active item'>",
+                        "</div>",
+                        "<div class='mainInfo' title='Go to featured item'>",
                         "</div>",
                     "</div>",
                 "</div>",
@@ -83,6 +85,11 @@ var UserInterface = {
         ].join('\n')
         //TopBar
         $('#main-container').append(topBarMarkup)
+
+        $('#topBarLeft').on('wheel', function (e) {
+            e.preventDefault()
+            this.scrollLeft += e.originalEvent.deltaY
+        })
 
         this.rightPanel = d3
             .select('body')
@@ -127,6 +134,66 @@ var UserInterface = {
             .style('transition', 'width 0.2s ease-out')
             .style('overflow', 'hidden')
             .style('z-index', '1400')
+        // Drag
+        this.toolPanelDrag = d3
+            .select('#main-container')
+            .append('div')
+            .attr('id', 'toolPanelDrag')
+            .style('position', 'absolute')
+            .style('width', '24px')
+            .style('height', `28px`)
+            .style('padding', '10px 2px')
+            .style('margin', '0px 3px')
+            .style('text-align', 'center')
+            .style('top', '1px')
+            .style('color', 'var(--color-a3)')
+            .style('overflow', 'hidden')
+            .style('cursor', 'col-resize')
+            .style('display', 'none')
+            .style('z-index', '1400')
+            .style('border-right', '1px solid transparent')
+        this.toolPanelDrag
+            .append('div')
+            .html("<i class='mdi mdi-drag-vertical mdi-18px'></i>")
+        UserInterface.handleToolDragDragging = function (e) {
+            UserInterface.toolDrags.left =
+                UserInterface.toolDrags.offset0.left +
+                (e.pageX - UserInterface.toolDrags.pageX0)
+
+            $('body').css('user-select', 'none')
+
+            UserInterface.toolPanelDrag
+                .style('left', UserInterface.toolDrags.left + 'px')
+                .style('height', '100%')
+                .style('border-right', '2px solid var(--color-a1)')
+        }
+
+        UserInterface.handleToolDragMouseup = function () {
+            $('body')
+                .off('mousemove', UserInterface.handleToolDragDragging)
+                .off('mouseup', UserInterface.handleToolDragMouseup)
+            if (UserInterface.toolDrags?.left != null)
+                UserInterface.resizeToolPanel(
+                    UserInterface.toolDrags.left - UserInterface.topSize + 24
+                )
+            $('body').css('user-select', 'auto')
+            UserInterface.toolPanelDrag
+                .style('color', 'var(--color-a3)')
+                .style('height', '28px')
+                .style('border-right', '1px solid transparent')
+        }
+        UserInterface.handleToolDragMousedown = function (e) {
+            UserInterface.toolDrags = {}
+            UserInterface.toolDrags.pageX0 = e.pageX
+            UserInterface.toolDrags.elem = this
+            UserInterface.toolDrags.offset0 = $(this).offset()
+            UserInterface.toolPanelDrag.style('color', 'var(--color-mmgis)')
+            $('body')
+                .on('mouseup', UserInterface.handleToolDragMouseup)
+                .on('mousemove', UserInterface.handleToolDragDragging)
+        }
+        $('#toolPanelDrag').on('mousedown', this.handleToolDragMousedown)
+
         //Main container div
         this.splitscreens = d3
             .select('#main-container')
@@ -270,7 +337,8 @@ var UserInterface = {
             .attr('id', 'mapSplitInnerLeft')
             .attr('tabindex', 500)
             .attr('class', 'mdi mdi-chevron-double-left mdi-24px')
-            .style('margin-right', '9px')
+            .style('position', 'absolute')
+            .style('left', '-28px')
             .on('click touchstart', function () {
                 var pp = UserInterface.getPanelPercents()
                 if (pp.map == 0) {
@@ -290,7 +358,7 @@ var UserInterface = {
             .style('width', '30px')
             .style('height', '30px')
             .style('position', 'absolute')
-            .style('left', '22px')
+            .style('left', '23px')
             .style('z-index', '-1')
         this.mapSplitInner
             .append('i')
@@ -298,7 +366,8 @@ var UserInterface = {
             .attr('id', 'mapSplitInnerRight')
             .attr('tabindex', 501)
             .attr('class', 'mdi mdi-chevron-double-right mdi-24px')
-            .style('margin-left', '9px')
+            .style('position', 'absolute')
+            .style('right', '-29px')
             .on('click touchstart', function () {
                 var pp = UserInterface.getPanelPercents()
                 if (pp.map == 0) {
@@ -384,7 +453,8 @@ var UserInterface = {
             .attr('id', 'globeSplitInnerLeft')
             .attr('tabindex', 502)
             .attr('class', 'mdi mdi-chevron-double-left mdi-24px')
-            .style('margin-right', '8px')
+            .style('position', 'absolute')
+            .style('left', '-27px')
             .on('click touchstart', function () {
                 var pp = UserInterface.getPanelPercents()
                 if (pp.map == 0) {
@@ -416,7 +486,8 @@ var UserInterface = {
             .attr('id', 'globeSplitInnerRight')
             .attr('tabindex', 503)
             .attr('class', 'mdi mdi-chevron-double-right mdi-24px')
-            .style('margin-left', '8px')
+            .style('position', 'absolute')
+            .style('right', '-28px')
             .on('click touchstart', function () {
                 var pp = UserInterface.getPanelPercents()
                 if (pp.map == 0) {
@@ -605,6 +676,7 @@ var UserInterface = {
     openToolPanel: function (width) {
         UserInterface.toolPanel.selectAll('*').remove()
         UserInterface.toolPanel.style('width', width + 'px')
+        UserInterface.toolPanelDrag.style('left', width + 10 + 'px')
         UserInterface.splitscreens.style(
             'width',
             'calc(100% - ' + (width + 40) + 'px)'
@@ -617,7 +689,30 @@ var UserInterface = {
         UserInterface.splitscreens.style('left', width + 40 + 'px')
         UserInterface.mainWidth = $('#splitscreens').width()
         UserInterface.mainHeight = $('#splitscreens').height()
-        var pp = UserInterface.getPanelPercents()
+        const pp = UserInterface.getPanelPercents()
+        UserInterface.setPanelPercents(pp.viewer, pp.map, pp.globe)
+    },
+    resizeToolPanel: function (width) {
+        width = Math.max(
+            Math.min(width, window.innerWidth / 2),
+            ToolController_.getTool(ToolController_.activeToolName)?.width ||
+                300
+        )
+        UserInterface.toolPanel.style('width', width + 'px')
+        UserInterface.toolPanelDrag.style('left', width + 10 + 'px')
+        UserInterface.splitscreens.style(
+            'width',
+            'calc(100% - ' + (width + 40) + 'px)'
+        )
+        $('#topBar').css({
+            'padding-left': '0px',
+            'margin-left': `${width + 40}px`,
+            width: `calc(100% - ${width + 40}px)`,
+        })
+        UserInterface.splitscreens.style('left', width + 40 + 'px')
+        UserInterface.mainWidth = $('#splitscreens').width()
+        UserInterface.mainHeight = $('#splitscreens').height()
+        const pp = UserInterface.getPanelPercents()
         UserInterface.setPanelPercents(pp.viewer, pp.map, pp.globe)
     },
     closeToolPanel: function () {
@@ -925,11 +1020,51 @@ var UserInterface = {
                 display: l_.configData.look.fullscreen ? 'inherit' : 'none',
             })
 
-        if (l_.configData.look && l_.configData.look.help != null)
+        if (l_.configData.look && l_.configData.look.settings != null)
+            $('#bottomBarSettings').css({
+                display: l_.configData.look.settings ? 'inherit' : 'none',
+            })
+
+        if (
+            l_.configData.look &&
+            l_.configData.look.info != null &&
+            l_.configData.look.infourl != ''
+        ) {
+            $('#topBarInfo').css({
+                display: l_.configData.look.info ? 'inherit' : 'none',
+            })
+        } else {
+            $('#topBarInfo').css({
+                display: 'none',
+            })
+        }
+
+        if (
+            l_.configData.look &&
+            l_.configData.look.help != null &&
+            l_.configData.look.helpurl != ''
+        ) {
             $('#topBarHelp').css({
                 display: l_.configData.look.help ? 'inherit' : 'none',
             })
+        } else {
+            $('#topBarHelp').css({
+                display: 'none',
+            })
+        }
 
+        if (l_.configData.look && l_.configData.look.topbar === false)
+            BottomBar.changeUIVisibility('topbar', false)
+        if (l_.configData.look && l_.configData.look.toolbar === false)
+            BottomBar.changeUIVisibility('toolbars', false)
+        if (l_.configData.look && l_.configData.look.scalebar === false)
+            BottomBar.changeUIVisibility('scalebar', false)
+        if (l_.configData.look && l_.configData.look.coordinates === false)
+            BottomBar.changeUIVisibility('coordinates', false)
+        if (l_.configData.look && l_.configData.look.miscellaneous === false)
+            BottomBar.changeUIVisibility('miscellaneous', false)
+
+        BottomBar.fina()
         UserInterface.show()
     },
     updateLayerUpdateButton: function (type) {
@@ -1339,20 +1474,20 @@ function windowresize() {
     UserInterface.mainHeight = $('#splitscreens').height()
 
     //Resize widest panel so that their sum is the screen width
-    var widest = Math.max(
+    const widest = Math.max(
         UserInterface.pxIsViewer,
         UserInterface.pxIsMap,
         UserInterface.pxIsGlobe
     )
-    if (UserInterface.pxIsViewer == widest)
-        UserInterface.pxIsViewer =
-            UserInterface.mainWidth -
-            UserInterface.pxIsMap -
-            UserInterface.pxIsGlobe
-    else if (UserInterface.pxIsMap == widest)
+    if (UserInterface.pxIsMap == widest)
         UserInterface.pxIsMap =
             UserInterface.mainWidth -
             UserInterface.pxIsViewer -
+            UserInterface.pxIsGlobe
+    else if (UserInterface.pxIsViewer == widest)
+        UserInterface.pxIsViewer =
+            UserInterface.mainWidth -
+            UserInterface.pxIsMap -
             UserInterface.pxIsGlobe
     else if (UserInterface.pxIsGlobe == widest)
         UserInterface.pxIsGlobe =

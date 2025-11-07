@@ -1,5 +1,172 @@
 # MMGIS Changelog
 
+## 3.0.0
+
+_October 14, 2024_
+
+#### Summary
+
+Adds the new Configure Beta page at /configure-beta. The old Configure page still exists at /configure and is meant to be backwards compatible but do note that new configuration options will likely only make there way into /configure-beta.
+
+#### Added
+
+- /configure-beta
+- Made dynamicExtent requery timeEnabled aware.
+- Viewshed Tool can configure initial target and initial observer heights.
+- Viewshed Tool in-app documentation.
+- Allow adding relative seconds to initial times
+- Added downloadURL variable to allow users to download raster layers.
+- Info queries for dynamicExtent layers.
+- mmgisAPI.getActiveTools.
+- Can specify any mdi icon to be the shape icon for a vector layer.
+- Easily navigate to the next and previous feature of a layer
+- COMPOSITE_TILE_DIR_STORE_MAX_AGE_MS ENV (for composited tile layers).
+- Add per layer refreshInterval for which to requery vector or raster layer.
+
+#### Changed
+
+- Updated Identifier tool to be a separated floating tool.
+- MeasureTool now uses a linear x-axis.
+- Improvements to bulk_tiles and added quantize_colormap.
+- Enabled scalefactor and improved text readout for Identifier tool.
+
+#### Fixed
+
+- Improper WMS layer option forwarding in some cases.
+- Bad merging of values for injection into time={starttime} in a WMS URL.
+- mmgisAPI.setTime checking min-date restrictions too soon.
+- Chronice fix second loss.
+- Vector layers with heading/bearings would not toggle on/off.
+- dynamicExtent vector layer and filtering issues.
+- Fix setTime currentTime timezone.
+- Fix Deeplink to selected point or polygon.
+- Starting in Point Mode for Time doesn't work.
+
+---
+
+## 2.11.0
+
+_Mar 15, 2024_
+
+#### Summary
+
+The release adds a new tool called the ShadeTool, capable of showing visibility maps of various celestial object and craft with the aid of SPICE. The ShadeTool can reveal answers to questions like: "At this time and on my current map, what are all the locations I can view the ISS from?"
+
+Also added are dynamic vector layers that query only for the features immediately within the map's viewport and within time ranges and zoom ranges. This enables much larger vector files to be loaded and rendered without sacrificing performance.
+
+Additionally some new features have been added to the DrawTool, along with new layer export options and various bugfixes and improvements.
+
+#### Added
+
+ShadeTool
+SPICE integration and scheduled kernel downloads
+Dynamic vector layers (query only vectors in screen)
+DrawTool - Folders and tags can contain symbols
+DrawTool - turning a file off also deselects it now
+DrawTool - template fields can be reordered
+DrawTool - Advanced filter in Features tab
+DrawTool - Filter state management
+DrawTool - Move
+Export .shp and .kml LayersTool and DrawTool
+MeasureTool and IdentifierTool Layer Vars (configure them in the layer instead of in the tool)
+Identifier tool vsicurl support
+IdentifierTool - Query Datasets with Time
+Tools can be expanded horizontally
+Hotkeys
+Local vector layer filtering now supports booleans
+Add Database docs
+Geodatasets now use spatial and temporal db indices
+Geodatasets now support dedicated time fields
+Add Geodatasets API docs
+Add geodatasets/remove endpoints
+Add file_description tagging schemes to DB docs
+Deep Link shall also deep link to start and end times
+urlReplacements layer raw variables to inject parameters
+GENERATE_SOURCEMAP ENV
+
+#### Changed
+
+Image Overlay improvements
+Description topbar improvements
+Minor updates for API calls
+Improve KML Export Styles
+Remove 'Layer Group' and 'Layer' titles from LayerInfoModal
+Disable Globe more thoroughly when off
+Additional Body Metadata for Draw Webhooks
+Remove restriction on Layer names
+Check for empty time configs in TimeControl
+Dropdown in the topbar for a selected feature's properties links
+
+#### Fixed
+
+LayersTool - fix nested header expansion
+Viewer panorama map view angles works for polar projections
+DrawTool - fix deleting tag also closing modal
+Fix IdentifierTool tile queries
+Fix: Header Layer Descriptions Don't Save
+Fix Time Vector Layer first turn on
+Fix click on vectortile
+Fix missing Missions/mission path on tile layers
+Fix Tool Drag Handle Remains on Screen
+MeasureTool Fix nodata issue
+
+---
+
+## 2.9.0
+
+_Sept 5, 2023_
+
+#### Summary
+
+This release makes Layer IDs based on UUIDs instead of their layer names, greatly improves support for the dimension of time, adds property templates and group editing to DrawTool files, adds ability to link features together, upgrades our tiling scripts, and streamlines installations among other things.
+
+#### Added
+
+- Examples of wrapping MMGIS in an IFrame under `/examples`
+- A full features TimeUI/Timeline Scrubber
+- The InfoTool scans for and makes clickable url links
+- Support for Composite Time Tiles that merge tiles across a time range on-the-fly on the backend
+- Configurable Context Menu actions
+- Polygons can have right-click context menu actions and form links with their WKT strings
+- A GitHub workflow now builds [MMGIS docker images](https://github.com/NASA-AMMOS/MMGIS/pkgs/container/mmgis)
+- The ability to pair features from one layer to another and render those paired targets in the Photosphere view.
+- Optional Websocket verification to the configure page to notify of concurrent users.
+- Ability to export the "working" configuration JSON from the configure page
+- GET `/api/configure/missions` now supports the `full` parameter to return all configuration objects as well
+- DrawTool users can enforce property template on their files
+- Adds a `MAIN_MISSION` ENV that skips the landing page even if there are many missions
+- Grouping editing for DrawTool files
+- All endpoints can use longtermtokens
+- The LegendTool can optionally be exposed as a togglable popup as well as other improvements
+- Various additions to the `mmgisAPI`
+- Upgraded gdal2customtiles to use gdal 3.5.2 and to support tiling in any projection
+- GeoJSON validation on layers.
+- GeoJSON data can be an empty []
+- Clicking intersects all features making impossible-to-reach features accessible through the InfoTool
+- The DrawTool is integrated with time.
+
+#### Changed
+
+- Layers use UUIDs and identifiers instead of their layer names (backwards-compatibility still maintained)
+- The ENV `PUBLIC_URL` is deprecated in fovar of the new `ROOT_PATH`. Unlike `PUBLIC_URL`, `ROOT_PATH` can fully be changed at runtime
+- Database and POSTGIS extension are automatically created if they don't exist
+- Upgraded the configure page's jquery from `1.11.1` to `3.6.1`
+
+#### Fixed
+
+- `ENABLE_MMGIS_WEBSOCKETS` name in sample.env
+- Websockets try to reconnect and with exponential backoff
+- Various issues regarding time layers
+- Various issues regarding WMS layers
+- MMGIS can now work with NodeJS 18+
+- Bug where initially on annotations features have no click events
+- Bug where having the cursor over an annotation on the Map prevented pans and zooms
+- Fixed the `angleUnit` property for image layer attachments
+- Cloning a layer in the configure page
+- Issue where logging in with AUTH=local would infinitely reload
+
+---
+
 ## 2.8.0
 
 _Nov 14, 2022_

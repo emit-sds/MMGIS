@@ -1,5 +1,6 @@
 import * as moment from 'moment'
 
+import F_ from '../Basics/Formulae_/Formulae_'
 import L_ from '../Basics/Layers_/Layers_'
 import T_ from '../Basics/ToolController_/ToolController_'
 import calls from '../../pre/calls'
@@ -153,6 +154,9 @@ var QueryURL = {
         }
 
         if (startTime !== false) {
+            // Parse to an int if a unix timestamp
+            if (F_.isStringNumeric(startTime)) startTime = parseInt(startTime)
+
             const date = new moment(startTime)
             if (!isNaN(date) && date.isValid()) {
                 L_.FUTURES.startTime = date
@@ -162,6 +166,8 @@ var QueryURL = {
         }
 
         if (endTime !== false) {
+            if (F_.isStringNumeric(endTime)) endTime = parseInt(endTime)
+
             const date = new moment(endTime)
             if (!isNaN(date) && date.isValid()) {
                 L_.FUTURES.endTime = date
@@ -278,17 +284,14 @@ var QueryURL = {
         if (mapZoom == undefined) mapZoom = L_.Map_.map.getZoom()
 
         var globeCenter = L_.Globe_.litho.getCenter()
-        if (globeLon == undefined) globeLon = globeCenter.lng
-        if (globeLat == undefined) globeLat = globeCenter.lat
-        if (globeZoom == undefined) globeZoom = L_.Globe_.litho.zoom
+        if (globeCenter) {
+            if (globeLon == undefined) globeLon = globeCenter.lng
+            if (globeLat == undefined) globeLat = globeCenter.lat
+            if (globeZoom == undefined) globeZoom = L_.Globe_.litho.zoom
+        }
 
         var viewerImg = L_.Viewer_.getLastImageId()
         var viewerLoc = L_.Viewer_.getLocation()
-
-        const timeEnabled =
-            L_.configData.time && L_.configData.time.enabled === true
-        var startTime = timeEnabled ? TimeControl.getStartTime() : null
-        var endTime = timeEnabled ? TimeControl.getEndTime() : null
 
         //mission
         var urlAppendage = '?mission=' + L_.mission
@@ -315,25 +318,28 @@ var QueryURL = {
         urlAppendage += '&globeZoom=' + globeZoom
 
         //globeCamera
-        var orbit = L_.Globe_.litho.getCameras().orbit
-        var cam = orbit.camera
-        var con = orbit.controls
+        const lithoCams = L_.Globe_.litho.getCameras()
+        if (lithoCams != null) {
+            var orbit = lithoCams.orbit
+            var cam = orbit.camera
+            var con = orbit.controls
 
-        var pos = cam.position
-        var tar = con.target
-        var globeCamera =
-            pos.x +
-            ',' +
-            pos.y +
-            ',' +
-            pos.z +
-            ',' +
-            tar.x +
-            ',' +
-            tar.y +
-            ',' +
-            tar.z
-        urlAppendage += '&globeCamera=' + globeCamera
+            var pos = cam.position
+            var tar = con.target
+            var globeCamera =
+                pos.x +
+                ',' +
+                pos.y +
+                ',' +
+                pos.z +
+                ',' +
+                tar.x +
+                ',' +
+                tar.y +
+                ',' +
+                tar.z
+            urlAppendage += '&globeCamera=' + globeCamera
+        }
 
         //panePercents
         var pP = L_.UserInterface_.getPanelPercents()
@@ -342,24 +348,39 @@ var QueryURL = {
 
         //on
         var layersOnString = ''
-        for (var l in L_.toggledArray) {
-            if (L_.toggledArray[l] && L_.layersDataByName[l].type !== 'header')
+        for (var l in L_.layers.on) {
+            if (L_.layers.on[l] && L_.layers.data[l].type !== 'header')
                 layersOnString +=
-                    l + '$' + parseFloat(L_.opacityArray[l]).toFixed(2) + ','
+                    l + '$' + parseFloat(L_.layers.opacity[l]).toFixed(2) + ','
         }
         layersOnString = layersOnString.substring(0, layersOnString.length - 1)
         if (layersOnString.length > 0) urlAppendage += '&on=' + layersOnString
 
         //selected
-        if (L_.lastActivePoint.layerName != null) {
-            if (L_.toggledArray[L_.lastActivePoint.layerName])
-                urlAppendage +=
-                    '&selected=' +
-                    L_.lastActivePoint.layerName +
-                    ',' +
-                    L_.lastActivePoint.lat +
-                    ',' +
-                    L_.lastActivePoint.lon
+        if (L_.lastActiveFeature.layerName != null) {
+            if (L_.layers.on[L_.lastActiveFeature.layerName])
+                if (
+                    L_.lastActiveFeature.key != null &&
+                    L_.lastActiveFeature.value != null
+                ) {
+                    urlAppendage +=
+                        '&selected=' +
+                        L_.lastActiveFeature.layerName +
+                        ',' +
+                        L_.lastActiveFeature.key +
+                        ',' +
+                        L_.lastActiveFeature.value
+                } else if (
+                    L_.lastActiveFeature.lat != null &&
+                    L_.lastActiveFeature.lon != null
+                )
+                    urlAppendage +=
+                        '&selected=' +
+                        L_.lastActiveFeature.layerName +
+                        ',' +
+                        L_.lastActiveFeature.lat +
+                        ',' +
+                        L_.lastActiveFeature.lon
         }
 
         //viewer
@@ -372,10 +393,16 @@ var QueryURL = {
         if (urlTools !== false) urlAppendage += '&tools=' + urlTools
 
         //time
-        if (L_.FUTURES.startTime) urlAppendage += '&startTime=' + startTime
-        if (L_.FUTURES.endTime) urlAppendage += '&endTime=' + endTime
+        if (L_.configData.time && L_.configData.time.enabled === true) {
+            // If the time UI is in the Range mode, then we have a start time
+            if (TimeControl.timeUI.modeIndex === 0)
+                if (TimeControl.startTime)
+                    urlAppendage += '&startTime=' + TimeControl.startTime
+            if (TimeControl.endTime)
+                urlAppendage += '&endTime=' + TimeControl.endTime
+        }
 
-        var url = urlAppendage
+        var url = encodeURI(urlAppendage)
 
         if (shortenURL) {
             calls.api(

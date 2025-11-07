@@ -21,13 +21,15 @@ var CursorInfo = {
             .style('position', 'absolute')
             .style('left', 0)
             .style('top', 0)
-            .style('padding', '6px 9px 6px 9px')
+            .style('padding', '5px 9px 4px 9px')
+            .style('line-height', '22px')
             .style('border', '1px solid #17586E')
             .style('border-radius', '3px')
             .style('background-color', 'var(--color-a)')
             .style('color', '#DCDCDC')
             .style('font-weight', 'bold')
             .style('font-size', '16px')
+            .style('white-space', 'pre-wrap')
             //.style( 'box-shadow', '0px 5px 15px #000' )
             .style('z-index', '60000000')
             .style('pointer-events', 'none')
@@ -55,14 +57,21 @@ var CursorInfo = {
         forceColor,
         forceFontColor,
         asHTML,
-        withBorder
+        withBorder,
+        withoutPadding
     ) {
         if (position) {
             CursorInfo.forcedPos = true
             CursorInfo.cursorInfoDiv
                 .style('left', position.x + 'px')
-                .style('top', Math.max(45, position.y) + 'px')
+                .style('top', Math.max(40, position.y) + 'px')
         }
+        if (withoutPadding) {
+            CursorInfo.cursorInfoDiv.style('padding', 0)
+        } else {
+            CursorInfo.cursorInfoDiv.style('padding', '5px 9px 4px 9px')
+        }
+
         $('#cursorInfo').stop()
         CursorInfo.cursorInfoDiv.style('display', 'block').style('opacity', 1)
         CursorInfo.cursorInfoDiv
@@ -80,8 +89,24 @@ var CursorInfo = {
                     : 'none'
             })
             .style('display', 'block')
-        if (asHTML) CursorInfo.cursorInfoDiv.html(message)
-        else CursorInfo.cursorInfoDiv.text(message)
+        if (
+            typeof message === 'object' &&
+            !Array.isArray(message) &&
+            message !== null
+        ) {
+            let messageFormatted = ''
+            const keys = Object.keys(message)
+            keys.forEach((k, idx) => {
+                if (typeof k === 'string')
+                    messageFormatted += `<span style="color: var(--color-a5);">${k.capitalizeFirstLetter()}:</span> ${
+                        message[k]
+                    }${idx === keys.length - 1 ? '' : '\n'}`
+            })
+            CursorInfo.cursorInfoDiv.html(messageFormatted)
+        } else {
+            if (asHTML) CursorInfo.cursorInfoDiv.html(message)
+            else CursorInfo.cursorInfoDiv.text(message)
+        }
 
         if (time != null) {
             setTimeout(function () {
@@ -100,12 +125,12 @@ var CursorInfo = {
 }
 
 //Just match our absolutely positioned div to the bottom left of our cursor
-function cursorInfoMouseMove() {
+function cursorInfoMouseMove(e) {
     if (CursorInfo.forcedPos) return
 
     CursorInfo.cursorInfoDiv
-        .style('left', d3.mouse(this)[0] + 18 + 'px')
-        .style('top', d3.mouse(this)[1] + 10 + 'px')
+        .style('left', d3.pointer(e)[0] + 18 + 'px')
+        .style('top', d3.pointer(e)[1] + 10 + 'px')
 }
 
 export default CursorInfo

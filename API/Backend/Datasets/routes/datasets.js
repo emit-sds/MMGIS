@@ -10,6 +10,7 @@ const inspect = require("util").inspect;
 
 const { sequelize } = require("../../../connection");
 
+const Utils = require("../../../utils.js");
 const logger = require("../../../logger");
 const datasets = require("../models/datasets");
 const csvtojson = require("csvtojson");
@@ -17,7 +18,7 @@ const Datasets = datasets.Datasets;
 const makeNewDatasetTable = datasets.makeNewDatasetTable;
 
 //Returns dataset rows based on search
-router.post("/get", function(req, res, next) {
+router.post("/get", function (req, res, next) {
   get(req, res, next);
 });
 function get(req, res, next) {
@@ -30,40 +31,38 @@ function get(req, res, next) {
     if (i >= queries.length) {
       res.send({
         status: "success",
-        body: results
+        body: results,
       });
       return;
     }
     //First Find the table name
     Datasets.findOne({ where: { name: queries[i].dataset } })
-      .then(result => {
+      .then((result) => {
         if (result) {
-          const column = queries[i].column
-            .replace(/[`~!@#$%^&*|+\-=?;:'",.<>\{\}\[\]\\\/]/gi, "")
-            .replace(/[^ -~]+/g, "");
+          const column = queries[i].column;
           sequelize
             .query(
               "SELECT * FROM " +
-                result.dataValues.table +
+                Utils.forceAlphaNumUnder(result.dataValues.table) +
                 ' WHERE "' +
-                column +
+                Utils.forceAlphaNumUnder(column) +
                 '"=:search ORDER BY id ASC LIMIT 100',
               {
                 replacements: {
-                  search: queries[i].search
-                }
+                  search: queries[i].search,
+                },
               }
             )
-            .spread(r => {
+            .then(([r]) => {
               results.push({
                 ...queries[i],
                 table: result.dataValues.table,
-                results: r
+                results: r,
               });
               loopedGet(i + 1);
               return null;
             })
-            .catch(err => {
+            .catch((err) => {
               loopedGet(i + 1);
               return null;
             });
@@ -72,7 +71,7 @@ function get(req, res, next) {
         }
         return null;
       })
-      .catch(err => {
+      .catch((err) => {
         loopedGet(i + 1);
         return null;
       });
@@ -80,28 +79,81 @@ function get(req, res, next) {
 }
 
 //Returns a list of entries in the datasets table
-router.post("/entries", function(req, res, next) {
+router.post("/entries", function (req, res, next) {
   Datasets.findAll()
-    .then(sets => {
-      if (sets && sets.length > 0) {
+    .then((sets) => {
+      if (sets) {
         let entries = [];
         for (let i = 0; i < sets.length; i++) {
           entries.push({ name: sets[i].name, updated: sets[i].updatedAt });
         }
-        res.send({
-          status: "success",
-          body: { entries: entries }
-        });
+        // For each entry, list all occurrences in latest configuration objects
+        sequelize
+          .query(
+            `
+            SELECT t1.*
+            FROM configs AS t1
+            INNER JOIN (
+                SELECT mission, MAX(version) AS max_version
+                FROM configs
+                GROUP BY mission
+            ) AS t2
+            ON t1.mission = t2.mission AND t1.version = t2.max_version ORDER BY mission ASC;
+            `
+          )
+          .then(([results]) => {
+            // Populate occurrences
+            results.forEach((m) => {
+              Utils.traverseLayers(m.config.layers, (layer, path) => {
+                entries.forEach((entry) => {
+                  entry.occurrences = entry.occurrences || {};
+                  entry.occurrences[m.mission] =
+                    entry.occurrences[m.mission] || [];
+                  if (layer?.variables?.datasetLinks?.length != null) {
+                    layer.variables.datasetLinks.forEach((d) => {
+                      if (d.dataset === entry.name) {
+                        entry.occurrences[m.mission].push({
+                          name: layer.name,
+                          uuid: layer.uuid,
+                          path: path,
+                        });
+                      }
+                    });
+                  }
+                });
+              });
+            });
+
+            res.send({
+              status: "success",
+              body: { entries: entries },
+            });
+            return null;
+          })
+          .catch((err) => {
+            logger(
+              "error",
+              "Failed to find missions.",
+              req.originalUrl,
+              req,
+              err
+            );
+            res.send({
+              status: "failure",
+              message: "Failed to find missions.",
+            });
+            return null;
+          });
       } else {
         res.send({
-          status: "failure"
+          status: "failure",
         });
       }
     })
-    .catch(err => {
+    .catch((err) => {
       logger("error", "Failure finding datasets.", req.originalUrl, req, err);
       res.send({
-        status: "failure"
+        status: "failure",
       });
     });
 });
@@ -111,26 +163,26 @@ router.post("/entries", function(req, res, next) {
  * req.body.key
  * req.body.value
  */
-router.post("/search", function(req, res, next) {
+router.post("/search", function (req, res, next) {
   //First Find the table name
   Datasets.findOne({ where: { name: req.body.layer } })
-    .then(result => {
+    .then((result) => {
       if (result) {
         let table = result.dataValues.table;
 
         sequelize
           .query(
             "SELECT properties, ST_AsGeoJSON(geom) FROM " +
-              table +
+              Utils.forceAlphaNumUnder(table) +
               " WHERE properties ->> :key = :value;",
             {
               replacements: {
                 key: req.body.key,
-                value: req.body.value.replace(/[`;'"]/gi, "")
-              }
+                value: req.body.value.replace(/[`;'"]/gi, ""),
+              },
             }
           )
-          .spread(results => {
+          .then(([results]) => {
             let r = [];
             for (let i = 0; i < results.length; i++) {
               let feature = JSON.parse(results[i].st_asgeojson);
@@ -140,12 +192,12 @@ router.post("/search", function(req, res, next) {
 
             res.send({
               status: "success",
-              body: r
+              body: r,
             });
 
             return null;
           })
-          .catch(err => {
+          .catch((err) => {
             logger(
               "error",
               "SQL error search through dataset.",
@@ -155,34 +207,86 @@ router.post("/search", function(req, res, next) {
             );
             res.send({
               status: "failure",
-              message: "SQL error."
+              message: "SQL error.",
             });
           });
       } else {
         res.send({
           status: "failure",
-          message: "Layer not found."
+          message: "Layer not found.",
         });
       }
 
       return null;
     })
-    .catch(err => {
+    .catch((err) => {
       logger("error", "Failure finding dataset.", req.originalUrl, req, err);
       res.send({
-        status: "failure"
+        status: "failure",
       });
     });
 });
 
-router.post("/upload", function(req, res, next) {
+/*
+ * req.query.layer
+ */
+router.get("/download", function (req, res, next) {
+  //First Find the table name
+  Datasets.findOne({ where: { name: req.query.layer } })
+    .then((result) => {
+      if (result) {
+        let table = result.dataValues.table;
+
+        sequelize
+          .query("SELECT * FROM " + Utils.forceAlphaNumUnder(table), {
+            replacements: {},
+          })
+          .then(([results]) => {
+            res.send({
+              status: "success",
+              body: results,
+            });
+
+            return null;
+          })
+          .catch((err) => {
+            logger(
+              "error",
+              "SQL error downloading dataset.",
+              req.originalUrl,
+              req,
+              err
+            );
+            res.send({
+              status: "failure",
+              message: "SQL error.",
+            });
+          });
+      } else {
+        res.send({
+          status: "failure",
+          message: "Layer not found.",
+        });
+      }
+
+      return null;
+    })
+    .catch((err) => {
+      logger("error", "Failure finding dataset.", req.originalUrl, req, err);
+      res.send({
+        status: "failure",
+      });
+    });
+});
+
+router.post("/upload", function (req, res, next) {
   // Disable timeout
   req.setTimeout(0);
 
   let fields = {
     name: null,
     header: null,
-    upsert: null
+    upsert: null,
   };
 
   let tableName = null;
@@ -196,26 +300,33 @@ router.post("/upload", function(req, res, next) {
     let uploaded = "";
     let uploadFinished = false;
     const busboy = new Busboy({ headers: req.headers });
-    busboy.on("file", function(fieldname, file, filename, encoding, mimetype) {
-      file.on("data", function(data) {
+    busboy.on("file", function (fieldname, file, filename, encoding, mimetype) {
+      file.on("data", function (data) {
         uploaded += data.toString("utf8");
         populateNext();
       });
-      file.on("end", function() {});
+      file.on("end", function () {});
     });
-    busboy.on("field", function(
-      fieldname,
-      val,
-      fieldnameTruncated,
-      valTruncated,
-      encoding,
-      mimetype
-    ) {
-      fields[fieldname] = val;
-      if (fields.name != null && fields.header != null && fields.upsert != null)
-        begin();
-    });
-    busboy.on("finish", function() {
+    busboy.on(
+      "field",
+      function (
+        fieldname,
+        val,
+        fieldnameTruncated,
+        valTruncated,
+        encoding,
+        mimetype
+      ) {
+        fields[fieldname] = val;
+        if (
+          fields.name != null &&
+          fields.header != null &&
+          fields.upsert != null
+        )
+          begin();
+      }
+    );
+    busboy.on("finish", function () {
       uploadFinished = true;
       populateInterval = setInterval(populateNext, 100);
     });
@@ -231,8 +342,8 @@ router.post("/upload", function(req, res, next) {
         clearInterval(populateInterval);
         if (fields.upsert === "true") {
           let condition = "";
-          fields.header.forEach(elm => {
-            elm = elm.replace(/[`~!@#$%^&*|+\-=?;:'",.<>\{\}\[\]\\\/]/gi, "");
+          fields.header.forEach((elm) => {
+            elm = Utils.forceAlphaNumUnder(elm);
             condition +=
               ' AND ( a."' +
               elm +
@@ -248,12 +359,15 @@ router.post("/upload", function(req, res, next) {
           sequelize
             .query(
               "DELETE FROM " +
-                tableName +
+                Utils.forceAlphaNumUnder(tableName) +
                 " a USING " +
-                tableName +
+                Utils.forceAlphaNumUnder(tableName) +
                 " b " +
                 "WHERE b.id < a.id" +
-                condition
+                condition,
+              {
+                replacements: {},
+              }
             )
             .then(() => {
               res.send({
@@ -264,11 +378,11 @@ router.post("/upload", function(req, res, next) {
                   " out of " +
                   totalPopulates +
                   " chunks successfully uploaded. Data has been upserted too.",
-                body: {}
+                body: {},
               });
               res.end();
             })
-            .catch(err => {
+            .catch((err) => {
               logger(
                 "error",
                 "Upload but failed to remove duplicated rows.",
@@ -278,7 +392,7 @@ router.post("/upload", function(req, res, next) {
               );
               res.send({
                 status: "failed",
-                message: "Upload but failed to remove duplicated rows."
+                message: "Upload but failed to remove duplicated rows.",
               });
             });
         } else {
@@ -290,7 +404,7 @@ router.post("/upload", function(req, res, next) {
               " out of " +
               totalPopulates +
               " chunks successfully uploaded",
-            body: {}
+            body: {},
           });
           res.end();
         }
@@ -313,7 +427,7 @@ router.post("/upload", function(req, res, next) {
           csv.push(r);
         }
         totalPopulates++;
-        populateDatasetTable(tableObj, csv, function(success) {
+        populateDatasetTable(tableObj, csv, function (success) {
           working = false;
           if (success) successfulPopulates++;
         });
@@ -328,18 +442,18 @@ router.post("/upload", function(req, res, next) {
     } catch (err) {
       res.send({
         status: "failed",
-        message: "The field 'header' is not valid json array."
+        message: "The field 'header' is not valid json array.",
       });
       res.end();
       return;
     }
-    makeNewDatasetTable(fields.name, fields.header, function(result) {
+    makeNewDatasetTable(fields.name, fields.header, function (result) {
       let checkEnding = result.table.split("_");
       if (checkEnding[checkEnding.length - 1] !== "datasets") {
         logger("error", "Malformed table name.", req.originalUrl, req);
         res.send({
           status: "failed",
-          message: "Malformed table name"
+          message: "Malformed table name",
         });
         return;
       }
@@ -350,11 +464,18 @@ router.post("/upload", function(req, res, next) {
         tableObj = result.tableObj;
       } else {
         sequelize
-          .query("TRUNCATE TABLE " + result.table + " RESTART IDENTITY")
+          .query(
+            "TRUNCATE TABLE " +
+              Utils.forceAlphaNumUnder(result.table) +
+              " RESTART IDENTITY",
+            {
+              replacements: {},
+            }
+          )
           .then(() => {
             tableObj = result.tableObj;
           })
-          .catch(err => {
+          .catch((err) => {
             logger("error", "Recreation error.", req.originalUrl, req, err);
             res.send(result);
           });
@@ -364,12 +485,12 @@ router.post("/upload", function(req, res, next) {
 
   function populateDatasetTable(Table, csv, cb) {
     Table.bulkCreate(csv, {
-      returning: true
+      returning: true,
     })
-      .then(function(response) {
+      .then(function (response) {
         cb(true);
       })
-      .catch(function(err) {
+      .catch(function (err) {
         logger(
           "error",
           "Datasets: Failed to populate a dataset table!",
@@ -383,43 +504,50 @@ router.post("/upload", function(req, res, next) {
   }
 });
 
-router.post("/recreate", function(req, res, next) {
+router.post("/recreate", function (req, res, next) {
   // Disable timeout
   req.setTimeout(0);
 
   makeNewDatasetTable(
     req.body.name || req.fields.name,
     req.body.header || JSON.parse(req.fields.header),
-    function(result) {
+    function (result) {
       let checkEnding = result.table.split("_");
       if (checkEnding[checkEnding.length - 1] !== "datasets") {
         logger("error", "Malformed table name.", req.originalUrl, req);
         res.send({
           status: "failed",
-          message: "Malformed table name"
+          message: "Malformed table name",
         });
         return;
       }
 
       if (req.body.mode == "full") {
         sequelize
-          .query("TRUNCATE TABLE " + result.table + " RESTART IDENTITY")
+          .query(
+            "TRUNCATE TABLE " +
+              Utils.forceAlphaNumUnder(result.table) +
+              " RESTART IDENTITY",
+            {
+              replacements: {},
+            }
+          )
           .then(() => {
             populateDatasetTable(
               result.tableObj,
               JSON.parse(req.body.csv),
-              function(success) {
+              function (success) {
                 res.send({
                   status: success == true ? "success" : "failure",
                   message: "",
-                  body: {}
+                  body: {},
                 });
               }
             );
 
             return null;
           })
-          .catch(err => {
+          .catch((err) => {
             logger("error", "Recreation error.", req.originalUrl, req, err);
             res.send(result);
           });
@@ -427,29 +555,29 @@ router.post("/recreate", function(req, res, next) {
         populateDatasetTable(
           result.tableObj,
           JSON.parse(req.body.csv),
-          function(success) {
+          function (success) {
             res.send({
               status: success == true ? "success" : "failure",
               message: "",
-              body: {}
+              body: {},
             });
           }
         );
       }
     },
-    function(result) {
+    function (result) {
       res.send(result);
     }
   );
 
   function populateDatasetTable(Table, csv, cb) {
     Table.bulkCreate(csv, {
-      returning: true
+      returning: true,
     })
-      .then(function(response) {
+      .then(function (response) {
         cb(true);
       })
-      .catch(function(err) {
+      .catch(function (err) {
         logger(
           "error",
           "Datasets: Failed to populate a dataset table!",

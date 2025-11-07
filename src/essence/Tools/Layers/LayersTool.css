@@ -45,6 +45,9 @@
 #layersTool #filterLayers > div {
     display: flex;
 }
+#layersTool #filterLayers > .right {
+    margin-right: 24px;
+}
 #layersTool #filterLayers > .right > div {
     width: 24px;
     height: 28px;
@@ -86,7 +89,8 @@
 }
 #layersTool #searchLayers input {
     background: var(--color-a1);
-    width: 279px;
+    flex: 1;
+    margin-right: 62px;
     color: #ccc;
     padding-left: 28px;
     border: none;
@@ -198,6 +202,29 @@
     padding: 0;
     margin: 0;
 }
+#layersTool .settings .layerTimeTitle {
+    display: flex;
+    height: 30px;
+    line-height: 30px;
+}
+#layersTool .settings .layerTimeTitle > div:first-child {
+    color: var(--color-h);
+    text-transform: uppercase;
+    font-size: 12px;
+}
+
+#layersTool .settings .layerSettingsTitle {
+    display: flex;
+    height: 30px;
+    line-height: 30px;
+}
+#layersTool .settings .layerSettingsTitle > div:first-child {
+    color: var(--color-h);
+    text-transform: uppercase;
+    font-size: 12px;
+}
+#layersTool .settings .layerSettingsTitle > div:last-child {
+}
 #layersTool .settings ul > li {
     line-height: 30px;
 }
@@ -276,10 +303,12 @@
     padding: 2px 6px 2px 12px;
 }
 
+#layersTool .reload,
 #layersTool .reset,
 #layersTool .layerDownload,
 #layersTool .gears,
-#layersTool .LayersToolInfo {
+#layersTool .LayersToolInfo,
+#layersTool .time {
     width: 30px;
     height: 100%;
     text-align: center;
@@ -289,17 +318,20 @@
     transition: color 0.2s cubic-bezier(0.445, 0.05, 0.55, 0.95),
         background 0.2s cubic-bezier(0.445, 0.05, 0.55, 0.95);
 }
-
+#layersTool .reload,
 #layersTool .layerDownload,
 #layersTool .gears,
 #layersTool .LayersToolInfo {
     color: transparent;
 }
-#layersTool .reset:hover,
+#layersTool .reload:hover,
 #layersTool .layerDownload:hover,
 #layersTool .gears:hover,
 #layersTool .LayersToolInfo:hover {
     background: var(--color-k);
+}
+#layersTool .reset:hover {
+    color: white;
 }
 #layersTool .reset {
     display: none;
@@ -312,6 +344,7 @@
 #layersTool li.download_on .layerDownload,
 #layersTool li:hover .layerDownload,
 #layersTool li.gears_on .gears,
+#layersTool li:hover .reload,
 #layersTool li:hover .gears,
 #layersTool li:hover .LayersToolInfo {
     color: #fff;
@@ -595,4 +628,59 @@
     to {
         transform: rotate(360deg);
     }
+}
+
+.layersToolExport {
+    cursor: default;
+    height: unset !important;
+}
+.layersToolExport > div {
+    display: flex;
+    margin-bottom: 0px;
+}
+.layersToolExport > div:first-child {
+    margin-bottom: 0px;
+    color: #fff;
+}
+.layersToolExport > div:not(:first-child) {
+    justify-content: space-between;
+    line-height: 27px;
+}
+.layersToolExport > div:first-child > div {
+    padding-left: 4px;
+    color: #eee;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-size: 12px;
+}
+.layersToolExport:hover {
+    background: var(--color-a2) !important;
+}
+.layersToolExport > div > div:first-child {
+    padding-left: 28px;
+    line-height: 29px;
+}
+#layersTool .layersToolExport > div > select.dropdown {
+    background-color: var(--color-a1);
+    color: #ededed;
+    border: none;
+    width: 220px;
+    height: 27px;
+    font-size: 14px;
+    padding: 0px 3px;
+    border-left: 1px solid var(--color-a1-5);
+}
+.layersToolExportGo {
+    display: block;
+    width: 100%;
+    margin-left: 28px;
+    padding-left: 0px !important;
+    height: 27px;
+    line-height: 27px;
+    margin-top: 2px;
+    margin-bottom: 1px;
+    background-color: var(--color-a);
+}
+.layersToolExportGo:hover {
+    background-color: var(--color-a1-5);
 }

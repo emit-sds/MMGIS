@@ -146,6 +146,11 @@ body {
 #topBar {
 }
 
+#topBarInfo {
+    width: 24px;
+    height: 24px;
+}
+
 #topBarHelp {
     width: 24px;
     height: 24px;
@@ -300,6 +305,17 @@ body {
 
 .toolButton:hover {
     background: var(--color-a1-5) !important;
+}
+
+.toolButtonSep.active {
+    color: var(--color-c) !important;
+    border-bottom: 2px solid var(--color-c);
+}
+.toolButtonSep#toolButtonSeparated_Legend.active {
+    border-bottom: none !important;
+}
+.toolButtonSep:hover {
+    color: var(--color-c) !important;
 }
 #tScreen {
     width: 100%;
@@ -902,6 +918,7 @@ body {
     white-space: nowrap;
     user-select: none;
     cursor: pointer;
+    user-select: none;
     transition: all 0.2s cubic-bezier(0.445, 0.05, 0.55, 0.95),
         transform 0s ease-in-out;
 }
@@ -974,4 +991,27 @@ mark {
     div:not(.no-highlight).active {
     background: var(--color-c2) !important;
     border-radius: 0px;
+}
+
+
+#mainDescPointLinks ul {
+    width: fit-content;
+}
+#mainDescPointLinks .dropy__title {
+    height: 30px;
+    border: none;
+    margin-left: 9px;
+    width: 60px;
+    background: var(--color-a1);
+}
+#mainDescPointLinks .dropy__title > span {
+    padding-top: 2px;
+}
+#mainDescPointLinks .dropy__title > i {
+    line-height: 15px;
+}
+
+#mainDescPointLinks_global .dropy__content li a {
+    padding: 0.425rem 1.0375em;
+    height: 30px;
 }

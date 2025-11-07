@@ -11,6 +11,7 @@ import Map_ from '../../Basics/Map_/Map_'
 import Globe_ from '../../Basics/Globe_/Globe_'
 import CursorInfo from '../../Ancillary/CursorInfo'
 import DataShaders from '../../Ancillary/DataShaders'
+import Help from '../../Ancillary/Help'
 
 import arc from '../../../external/Arc/arc'
 import '../../../external/ColorPicker/jqColorPicker'
@@ -22,12 +23,17 @@ import ViewshedTool_Algorithm from './ViewshedTool_Algorithm'
 
 import './ViewshedTool.css'
 
+const helpKey = 'ViewshedTool'
+
 // prettier-ignore
 let markup = [
     "<div id='viewshedTool'>",
         "<div id='vstHeader'>",
             "<div>",
-                "<div id='vstTitle'>Viewshed</div>",
+                "<div style='display: flex;'>",
+                    "<div id='vstTitle'>Viewshed</div>",
+                    Help.getComponent(helpKey),
+                "</div>",
                 "<div id='vstNew'>",
                     "<div>New</div>",
                     "<i class='mdi mdi-plus mdi-18px'></i>",
@@ -263,8 +269,17 @@ let ViewshedTool = {
             resolution: initObj.resolution != null ? initObj.resolution : 1,
             invert: initObj.invert != null ? initObj.invert : 0,
             targetHeight:
-                initObj.targetHeight != null ? initObj.targetHeight : 0,
-            height: initObj.height != null ? initObj.height : 2,
+                initObj.targetHeight != null
+                    ? initObj.targetHeight
+                    : ViewshedTool?.vars?.defaultTargetHeight != null
+                    ? ViewshedTool.vars.defaultTargetHeight
+                    : 0,
+            height:
+                initObj.height != null
+                    ? initObj.height
+                    : ViewshedTool?.vars?.defaultObserverHeight != null
+                    ? ViewshedTool.vars.defaultObserverHeight
+                    : 2,
             centerAzimuth: initObj.centerAzimuth || 0,
             FOVAzimuth: initObj.FOVAzimuth != null ? initObj.FOVAzimuth : 360,
             centerElevation: initObj.centerElevation || 0,
@@ -498,14 +513,14 @@ let ViewshedTool = {
                     ).hasClass('on')
                     const layerName = 'viewshed' + id
                     if (isOn) {
-                        if (L_.layersGroup[layerName])
-                            Map_.map.addLayer(L_.layersGroup[layerName])
+                        if (L_.layers.layer[layerName])
+                            Map_.map.addLayer(L_.layers.layer[layerName])
                         if (ViewshedTool.shedMarkers[id])
                             Map_.map.addLayer(ViewshedTool.shedMarkers[id])
                         if (ViewshedTool.shedWedges[id])
                             Map_.map.addLayer(ViewshedTool.shedWedges[id])
                     } else {
-                        Map_.rmNotNull(L_.layersGroup[layerName])
+                        Map_.rmNotNull(L_.layers.layer[layerName])
                         Map_.rmNotNull(ViewshedTool.shedMarkers[id])
                         Map_.rmNotNull(ViewshedTool.shedWedges[id])
                     }
@@ -1270,11 +1285,11 @@ let ViewshedTool = {
         function makeDataLayer(layerUrl, activeElmId, dlc) {
             let layerName = 'viewshed' + activeElmId
 
-            Map_.rmNotNull(L_.layersGroup[layerName])
+            Map_.rmNotNull(L_.layers.layer[layerName])
 
             let uniforms = {}
 
-            L_.layersGroup[layerName] = L.tileLayer.gl({
+            L_.layers.layer[layerName] = L.tileLayer.gl({
                 options: {
                     tms: false,
                     className: 'nofade',
@@ -1286,13 +1301,13 @@ let ViewshedTool = {
                 uniforms: uniforms,
                 tileUrlsAsDataUrls: true,
             })
-            L_.layersGroup[layerName].setZIndex(1000)
+            L_.layers.layer[layerName].setZIndex(1000)
             $(
                 '#vstViewsheds #vstId_' +
                     activeElmId +
                     ' .vstShedHeader .checkbox'
             ).addClass('on')
-            Map_.map.addLayer(L_.layersGroup[layerName])
+            Map_.map.addLayer(L_.layers.layer[layerName])
 
             Globe_.litho.removeLayer(layerName)
         }
@@ -1384,10 +1399,10 @@ let ViewshedTool = {
     },
     delete: function (activeElmId) {
         $('#vstId_' + activeElmId).remove()
-        Map_.rmNotNull(L_.layersGroup['viewshed' + activeElmId])
+        Map_.rmNotNull(L_.layers.layer['viewshed' + activeElmId])
         Map_.rmNotNull(ViewshedTool.shedMarkers[activeElmId])
         Map_.rmNotNull(ViewshedTool.shedWedges[activeElmId])
-        L_.layersGroup['viewshed' + activeElmId] = null
+        L_.layers.layer['viewshed' + activeElmId] = null
         ViewshedTool.shedMarkers[activeElmId] = null
         ViewshedTool.shedWedges[activeElmId] = null
         ViewshedTool.canvases[activeElmId] = null
@@ -1564,6 +1579,8 @@ function interfaceWithMMGIS() {
     tools = tools.append('div').style('height', '100%')
     //Add the markup to tools or do it manually
     tools.html(markup)
+
+    Help.finalize(helpKey)
 
     if (!ViewshedTool.firstOpen && ViewshedTool.lastViewshedsUl != null) {
         for (let id in ViewshedTool.lastViewshedsUl) {

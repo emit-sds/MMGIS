@@ -2,7 +2,7 @@ const express = require("express");
 const logger = require("../../../logger");
 const database = require("../../../database");
 const Sequelize = require("sequelize");
-const uuidv4 = require("uuid/v4");
+const { v4: uuidv4 } = require("uuid");
 const fhistories = require("../models/filehistories");
 const Filehistories = fhistories.Filehistories;
 const FilehistoriesTEST = fhistories.FilehistoriesTEST;
@@ -12,6 +12,10 @@ const UserfilesTEST = ufiles.UserfilesTEST;
 const uf = require("../models/userfeatures");
 const Userfeatures = uf.Userfeatures;
 const UserfeaturesTEST = uf.UserfeaturesTEST;
+
+const filesutils = require("./filesutils");
+const getfile = filesutils.getfile;
+
 const { sequelize } = require("../../../connection");
 
 const router = express.Router();
@@ -49,6 +53,7 @@ const pushToHistory = (
   time,
   undoToTime,
   action_index,
+  user,
   successCallback,
   failureCallback
 ) => {
@@ -85,6 +90,7 @@ const pushToHistory = (
             time: time,
             action_index: action_index,
             history: h,
+            author: user,
           };
           // Insert new entry into the history table
           Table.create(newHistoryEntry)
@@ -202,8 +208,6 @@ const clipOver = function (
     })
     .then((historyObj) => {
       let history = historyObj.history;
-      history = history.join(",");
-      history = history || "NULL";
       //RETURN ALL THE CHANGED SHAPE IDs AND GEOMETRIES
       let q = [
         "SELECT clipped.id, ST_AsGeoJSON( (ST_Dump(clipped.newgeom)).geom ) AS newgeom FROM",
@@ -223,7 +227,7 @@ const clipOver = function (
           (req.body.test === "true" ? "_tests" : "") +
           " AS r",
         "WHERE r.file_id = :file_id AND r.id != :added_id AND r.id IN (" +
-          history +
+          ":history" +
           ")",
         ") data",
         "WHERE data.newgeom IS NOT NULL",
@@ -234,9 +238,10 @@ const clipOver = function (
           replacements: {
             file_id: file_id,
             added_id: added_id,
+            history: history,
           },
         })
-        .spread((results) => {
+        .then(([results]) => {
           let oldIds = [];
           let newIds = [added_id];
 
@@ -252,6 +257,7 @@ const clipOver = function (
                 time,
                 null,
                 5,
+                req.user,
                 () => {
                   if (typeof successCallback === "function") successCallback();
                 },
@@ -333,8 +339,6 @@ const clipUnder = function (
     })
     .then((historyObj) => {
       let history = historyObj.history;
-      history = history.join(",");
-      history = history || "NULL";
 
       //Continually clip the added feature with the other features of the file
       let q = [
@@ -352,7 +356,7 @@ const clipUnder = function (
           (req.body.test === "true" ? "_tests" : "") +
           " AS a",
         "WHERE a.id IN (" +
-          history +
+          ":history" +
           ") AND ST_INTERSECTS(a.geom, clippedgeom)",
         "))",
         "),",
@@ -374,9 +378,10 @@ const clipUnder = function (
         .query(q, {
           replacements: {
             geom: JSON.stringify(newFeature.geom),
+            history: history,
           },
         })
-        .spread((results) => {
+        .then(([results]) => {
           let oldIds = [];
           let newIds = [];
 
@@ -392,6 +397,7 @@ const clipUnder = function (
                 time,
                 null,
                 7,
+                req.user,
                 () => {
                   if (typeof successCallback === "function") successCallback();
                 },
@@ -440,6 +446,139 @@ const clipUnder = function (
       failureCallback(err);
     });
 };
+
+const _templateConform = (req, from) => {
+  return new Promise((resolve, reject) => {
+    req.body.id = req.body.file_id;
+
+    getfile(req, {
+      send: (r) => {
+        if (r.status === "success") {
+          const geojson = r.body.geojson;
+          const template =
+            r.body.file?.[0]?.dataValues?.template?.template || [];
+          const existingProperties = JSON.parse(req.body.properties || "{}");
+          const templaterProperties = {};
+
+          template.forEach((t, idx) => {
+            switch (t.type) {
+              case "incrementer":
+                const nextIncrement = _getNextIncrement(
+                  existingProperties[t.field],
+                  t,
+                  geojson.features,
+                  existingProperties,
+                  from
+                );
+                if (nextIncrement.error != null) {
+                  reject(nextIncrement.error);
+                  return;
+                } else templaterProperties[t.field] = nextIncrement.newValue;
+                break;
+              default:
+            }
+          });
+
+          req.body.properties = JSON.stringify({
+            ...existingProperties,
+            ...templaterProperties,
+          });
+        }
+        resolve();
+        return;
+      },
+    });
+
+    function _getNextIncrement(value, t, layer, existingProperties) {
+      if (value == null) return 0;
+
+      const response = {
+        newValue: value,
+        error: null,
+      };
+
+      let usedValues = [];
+      const split = (t._default || t.default).split("#");
+      const start = split[0];
+      const end = split[1];
+
+      for (let i = 0; i < layer.length; i++) {
+        if (layer[i] == null) continue;
+        let geojson = layer[i];
+        if (geojson?.properties?.[t.field] != null) {
+          let featuresVal = geojson?.properties?.[t.field];
+
+          featuresVal = featuresVal.replace(start, "").replace(end, "");
+
+          if (featuresVal !== "#") {
+            featuresVal = parseInt(featuresVal);
+            usedValues.push(featuresVal);
+          }
+        }
+      }
+
+      if ((response.newValue || "").indexOf("#") !== -1) {
+        // Actually increment the incrementer for the first time
+        let bestVal = 0;
+        usedValues.sort(function (a, b) {
+          return a - b;
+        });
+        usedValues = [...new Set(usedValues)]; // makes it unique
+        usedValues.forEach((v) => {
+          if (bestVal === v) bestVal++;
+        });
+        response.newValue = response.newValue.replace("#", bestVal);
+      } else if (existingProperties) {
+        let numVal = response.newValue.replace(start, "").replace(end, "");
+        if (numVal != "#") {
+          numVal = parseInt(numVal);
+          if (existingProperties[t.field] === response.newValue) {
+            // In case of a resave, make sure the id exists only once
+            let count = 0;
+            usedValues.forEach((v) => {
+              if (numVal === v) count++;
+            });
+            if (count > 1)
+              response.error = `Incrementing field: '${t.field}' is not unique`;
+          } else {
+            // In case a manual change, make sure the id is unique
+            if (usedValues.indexOf(numVal) !== -1)
+              response.error = `Incrementing field: '${t.field}' is not unique`;
+          }
+        }
+      }
+
+      // Check that the field still matches the surrounding string
+      const incRegex = new RegExp(`^${start}\\d+${end}$`);
+      if (incRegex.test(response.newValue) == false) {
+        response.error = `Incrementing field: '${t.field}' must follow syntax: '${start}{#}${end}'`;
+      }
+
+      // Check that incrementer is unique
+      let numMatches = 0;
+      for (let i = 0; i < layer.length; i++) {
+        if (layer[i] == null) continue;
+        let geojson = layer[i];
+        if (geojson?.properties?.[t.field] != null) {
+          let featuresVal = geojson?.properties?.[t.field];
+          if (
+            (value || "").indexOf("#") == -1 &&
+            response.newValue === featuresVal &&
+            geojson?.properties?.uuid != existingProperties.uuid
+          ) {
+            numMatches++;
+          }
+        }
+      }
+      // If we're are editing and the value did not change, allow a single match
+      if (numMatches > 0) {
+        response.error = `Incrementing field: '${t.field}' is not unique`;
+      }
+
+      return response;
+    }
+  });
+};
 /**
  * Adds a feature
  * {
@@ -453,13 +592,23 @@ const clipUnder = function (
  * 	geometry: <geometry> (required)
  * }
  */
-const add = function (
+const add = async function (
   req,
   res,
   successCallback,
   failureCallback1,
   failureCallback2
 ) {
+  let failedTemplate = false;
+  await _templateConform(req, "add").catch((err) => {
+    failedTemplate = err;
+  });
+  if (failedTemplate !== false) {
+    if (typeof failureCallback2 === "function")
+      failureCallback2(failedTemplate);
+    return;
+  }
+
   let Files = req.body.test === "true" ? UserfilesTEST : Userfiles;
   let Features = req.body.test === "true" ? UserfeaturesTEST : Userfeatures;
   let Histories = req.body.test === "true" ? FilehistoriesTEST : Filehistories;
@@ -475,13 +624,28 @@ const add = function (
   Files.findOne({
     where: {
       id: req.body.file_id,
-      [Sequelize.Op.or]: {
-        file_owner: req.user,
-        [Sequelize.Op.and]: {
-          file_owner: "group",
-          file_owner_group: { [Sequelize.Op.overlap]: groups },
+      [Sequelize.Op.or]: [
+        { file_owner: req.user },
+        {
+          [Sequelize.Op.and]: {
+            file_owner: "group",
+            file_owner_group: { [Sequelize.Op.overlap]: groups },
+          },
         },
-      },
+        {
+          [Sequelize.Op.and]: {
+            public: "1",
+            publicity_type: "list_edit",
+            public_editors: { [Sequelize.Op.contains]: [req.user] },
+          },
+        },
+        {
+          [Sequelize.Op.and]: {
+            public: "1",
+            publicity_type: "all_edit",
+          },
+        },
+      ],
     },
   }).then((file) => {
     if (!file) {
@@ -581,6 +745,7 @@ const add = function (
                       time,
                       null,
                       0,
+                      req.user,
                       () => {
                         if (typeof successCallback === "function")
                           successCallback(created.id, created.intent);
@@ -650,7 +815,16 @@ router.post("/add", function (req, res, next) {
  * 	geometry: <geometry> (optional)
  * }
  */
-const edit = function (req, res, successCallback, failureCallback) {
+const edit = async function (req, res, successCallback, failureCallback) {
+  let failedTemplate = false;
+  await _templateConform(req, "edit").catch((err) => {
+    failedTemplate = err;
+  });
+  if (failedTemplate !== false) {
+    if (typeof failureCallback === "function") failureCallback(failedTemplate);
+    return;
+  }
+
   let Files = req.body.test === "true" ? UserfilesTEST : Userfiles;
   let Features = req.body.test === "true" ? UserfeaturesTEST : Userfeatures;
   let Histories = req.body.test === "true" ? FilehistoriesTEST : Filehistories;
@@ -665,13 +839,28 @@ const edit = function (req, res, successCallback, failureCallback) {
   Files.findOne({
     where: {
       id: req.body.file_id,
-      [Sequelize.Op.or]: {
-        file_owner: req.user,
-        [Sequelize.Op.and]: {
-          file_owner: "group",
-          file_owner_group: { [Sequelize.Op.overlap]: groups },
+      [Sequelize.Op.or]: [
+        { file_owner: req.user },
+        {
+          [Sequelize.Op.and]: {
+            file_owner: "group",
+            file_owner_group: { [Sequelize.Op.overlap]: groups },
+          },
         },
-      },
+        {
+          [Sequelize.Op.and]: {
+            public: "1",
+            publicity_type: "list_edit",
+            public_editors: { [Sequelize.Op.contains]: [req.user] },
+          },
+        },
+        {
+          [Sequelize.Op.and]: {
+            public: "1",
+            publicity_type: "all_edit",
+          },
+        },
+      ],
     },
   })
     .then((file) => {
@@ -749,6 +938,7 @@ const edit = function (req, res, successCallback, failureCallback) {
                       time,
                       null,
                       1,
+                      req.user,
                       () => {
                         successCallback(createdId, createdUUID, createdIntent);
                       },
@@ -796,7 +986,9 @@ router.post("/edit", function (req, res) {
       res.send({
         status: "failure",
         message: "Failed to edit feature.",
-        body: {},
+        body: {
+          error: err,
+        },
       });
     }
   );
@@ -822,13 +1014,28 @@ router.post("/remove", function (req, res, next) {
   Files.findOne({
     where: {
       id: req.body.file_id,
-      [Sequelize.Op.or]: {
-        file_owner: req.user,
-        [Sequelize.Op.and]: {
-          file_owner: "group",
-          file_owner_group: { [Sequelize.Op.overlap]: groups },
+      [Sequelize.Op.or]: [
+        { file_owner: req.user },
+        {
+          [Sequelize.Op.and]: {
+            file_owner: "group",
+            file_owner_group: { [Sequelize.Op.overlap]: groups },
+          },
         },
-      },
+        {
+          [Sequelize.Op.and]: {
+            public: "1",
+            publicity_type: "list_edit",
+            public_editors: { [Sequelize.Op.contains]: [req.user] },
+          },
+        },
+        {
+          [Sequelize.Op.and]: {
+            public: "1",
+            publicity_type: "all_edit",
+          },
+        },
+      ],
     },
   }).then((file) => {
     if (!file) {
@@ -861,6 +1068,7 @@ router.post("/remove", function (req, res, next) {
             time,
             null,
             2,
+            req.user,
             () => {
               logger("info", "Feature removed.", req.originalUrl, req);
               res.send({
@@ -927,13 +1135,28 @@ router.post("/undo", function (req, res, next) {
   Files.findOne({
     where: {
       id: req.body.file_id,
-      [Sequelize.Op.or]: {
-        file_owner: req.user,
-        [Sequelize.Op.and]: {
-          file_owner: "group",
-          file_owner_group: { [Sequelize.Op.overlap]: groups },
+      [Sequelize.Op.or]: [
+        { file_owner: req.user },
+        {
+          [Sequelize.Op.and]: {
+            file_owner: "group",
+            file_owner_group: { [Sequelize.Op.overlap]: groups },
+          },
         },
-      },
+        {
+          [Sequelize.Op.and]: {
+            public: "1",
+            publicity_type: "list_edit",
+            public_editors: { [Sequelize.Op.contains]: [req.user] },
+          },
+        },
+        {
+          [Sequelize.Op.and]: {
+            public: "1",
+            publicity_type: "all_edit",
+          },
+        },
+      ],
     },
   }).then((file) => {
     if (!file) {
@@ -992,6 +1215,7 @@ router.post("/undo", function (req, res, next) {
             time,
             req.body.undo_time,
             3,
+            req.user,
             () => {
               logger("info", "Undo successful.", req.originalUrl, req);
               res.send({
@@ -1052,144 +1276,183 @@ router.post("/merge", function (req, res, next) {
   Files.findOne({
     where: {
       id: req.body.file_id,
-      [Sequelize.Op.or]: {
-        file_owner: req.user,
-        [Sequelize.Op.and]: {
-          file_owner: "group",
-          file_owner_group: { [Sequelize.Op.overlap]: groups },
+      [Sequelize.Op.or]: [
+        { file_owner: req.user },
+        {
+          [Sequelize.Op.and]: {
+            file_owner: "group",
+            file_owner_group: { [Sequelize.Op.overlap]: groups },
+          },
         },
-      },
+        {
+          [Sequelize.Op.and]: {
+            public: "1",
+            publicity_type: "list_edit",
+            public_editors: { [Sequelize.Op.contains]: [req.user] },
+          },
+        },
+        {
+          [Sequelize.Op.and]: {
+            public: "1",
+            publicity_type: "all_edit",
+          },
+        },
+      ],
     },
-  }).then((file) => {
-    if (!file) {
-      logger("error", "Failed to access file.", req.originalUrl, req);
+  })
+    .then((file) => {
+      if (!file) {
+        logger("error", "Failed to access file.", req.originalUrl, req);
+        res.send({
+          status: "failure",
+          message: "Failed to access file.",
+          body: {},
+        });
+      } else {
+        Features.findOne({
+          where: {
+            id: req.body.prop_id,
+          },
+        }).then((feature) => {
+          let ids = req.body.ids;
+          if (ids == null) ids = null;
+          if (!Array.isArray(ids)) ids = [ids];
+          if (ids.length === 0) ids = null;
+
+          let q;
+          if (feature.geom.type == "LineString") {
+            q = [
+              "SELECT ST_AsGeoJSON( (ST_Dump(mergedgeom.geom)).geom ) AS merged FROM",
+              "(",
+              "SELECT ST_LineMerge(ST_Union(geom)) AS geom",
+              "FROM user_features" +
+                (req.body.test === "true" ? "_tests" : "") +
+                " AS a",
+              "WHERE a.id IN (:ids) AND a.file_id = :file_id",
+              ") AS mergedgeom",
+            ].join(" ");
+          } else {
+            q = [
+              "SELECT ST_AsGeoJSON( (ST_Dump(mergedgeom.geom)).geom ) as merged FROM",
+              "(",
+              "SELECT ST_BUFFER(ST_UNION(",
+              "ARRAY((",
+              "SELECT ST_BUFFER(geom, 0.000001, 'join=mitre')",
+              "FROM user_features" +
+                (req.body.test === "true" ? "_tests" : "") +
+                " AS a",
+              "WHERE a.id IN (:ids)",
+              "))",
+              "), -0.000001,'join=mitre') AS geom",
+              ") AS mergedgeom",
+            ].join(" ");
+          }
+          sequelize
+            .query(q, {
+              replacements: {
+                file_id: req.body.file_id,
+                ids: ids,
+              },
+            })
+            .then(([results]) => {
+              let oldIds = req.body.ids.map(function (id) {
+                return parseInt(id, 10);
+              });
+
+              let newIds = [];
+
+              addLoop(0);
+              function addLoop(i) {
+                if (i >= results.length) {
+                  pushToHistory(
+                    Histories,
+                    res,
+                    req.body.file_id,
+                    newIds,
+                    oldIds,
+                    time,
+                    null,
+                    6,
+                    req.user,
+                    () => {
+                      logger(
+                        "info",
+                        "Successfully merged " +
+                          req.body.ids.length +
+                          " features.",
+                        req.originalUrl,
+                        req
+                      );
+                      res.send({
+                        status: "success",
+                        message:
+                          "Successfully merged " +
+                          req.body.ids.length +
+                          " features.",
+                        body: { ids: newIds },
+                      });
+                    },
+                    (err) => {
+                      logger(
+                        "error",
+                        "Merge failure.",
+                        req.originalUrl,
+                        req,
+                        err
+                      );
+                      res.send({
+                        status: "failure",
+                        message: "Merge failure.",
+                        body: {},
+                      });
+                    }
+                  );
+                  return null;
+                }
+                let mergedFeature = JSON.parse(JSON.stringify(feature));
+                mergedFeature.geom = JSON.parse(results[i].merged);
+                mergedFeature.geom.crs = {
+                  type: "name",
+                  properties: { name: "EPSG:4326" },
+                };
+                delete mergedFeature.id;
+
+                Features.create(mergedFeature)
+                  .then((created) => {
+                    newIds.push(created.id);
+                    addLoop(i + 1);
+                    return null;
+                  })
+                  .catch((err) => {
+                    addLoop(i + 1);
+                    return null;
+                    //failureCallback();
+                  });
+              }
+            })
+            .catch((err) => {
+              logger("error", "Failed to merge.", req.originalUrl, req, err);
+              res.send({
+                status: "failure",
+                message: "Failed to merge.",
+                body: {},
+              });
+
+              return null;
+            });
+        });
+      }
+    })
+    .catch((err) => {
+      logger("error", "Failed to merge.", req.originalUrl, req, err);
       res.send({
         status: "failure",
-        message: "Failed to access file.",
+        message: "Failed to merge.",
         body: {},
       });
-    } else {
-      Features.findOne({
-        where: {
-          id: req.body.prop_id,
-        },
-      }).then((feature) => {
-        let ids = req.body.ids;
-        ids = ids.join(",");
-        ids = ids || "NULL";
 
-        let q;
-        if (feature.geom.type == "LineString") {
-          q = [
-            "SELECT ST_AsGeoJSON( (ST_Dump(mergedgeom.geom)).geom ) AS merged FROM",
-            "(",
-            "SELECT ST_LineMerge(ST_Union(geom)) AS geom",
-            "FROM user_features" +
-              (req.body.test === "true" ? "_tests" : "") +
-              " AS a",
-            "WHERE a.id IN (" + ids + ") AND a.file_id = :file_id",
-            ") AS mergedgeom",
-          ].join(" ");
-        } else {
-          q = [
-            "SELECT ST_AsGeoJSON( (ST_Dump(mergedgeom.geom)).geom ) as merged FROM",
-            "(",
-            "SELECT ST_BUFFER(ST_UNION(",
-            "ARRAY((",
-            "SELECT ST_BUFFER(geom, 0.000001, 'join=mitre')",
-            "FROM user_features" +
-              (req.body.test === "true" ? "_tests" : "") +
-              " AS a",
-            "WHERE a.id IN (" + ids + ")",
-            "))",
-            "), -0.000001,'join=mitre') AS geom",
-            ") AS mergedgeom",
-          ].join(" ");
-        }
-        sequelize
-          .query(q, {
-            replacements: {
-              file_id: req.body.file_id,
-            },
-          })
-          .spread((results) => {
-            let oldIds = req.body.ids.map(function (id) {
-              return parseInt(id, 10);
-            });
-
-            let newIds = [];
-
-            addLoop(0);
-            function addLoop(i) {
-              if (i >= results.length) {
-                pushToHistory(
-                  Histories,
-                  res,
-                  req.body.file_id,
-                  newIds,
-                  oldIds,
-                  time,
-                  null,
-                  6,
-                  () => {
-                    logger(
-                      "info",
-                      "Successfully merged " +
-                        req.body.ids.length +
-                        " features.",
-                      req.originalUrl,
-                      req
-                    );
-                    res.send({
-                      status: "success",
-                      message:
-                        "Successfully merged " +
-                        req.body.ids.length +
-                        " features.",
-                      body: { ids: newIds },
-                    });
-                  },
-                  (err) => {
-                    logger(
-                      "error",
-                      "Merge failure.",
-                      req.originalUrl,
-                      req,
-                      err
-                    );
-                    res.send({
-                      status: "failure",
-                      message: "Merge failure.",
-                      body: {},
-                    });
-                  }
-                );
-                return null;
-              }
-              let mergedFeature = JSON.parse(JSON.stringify(feature));
-              mergedFeature.geom = JSON.parse(results[i].merged);
-              mergedFeature.geom.crs = {
-                type: "name",
-                properties: { name: "EPSG:4326" },
-              };
-              delete mergedFeature.id;
-
-              Features.create(mergedFeature)
-                .then((created) => {
-                  newIds.push(created.id);
-                  addLoop(i + 1);
-                  return null;
-                })
-                .catch((err) => {
-                  addLoop(i + 1);
-                  return null;
-                  //failureCallback();
-                });
-            }
-          });
-      });
-    }
-  });
+      return null;
+    });
 });
 
 /**
@@ -1216,13 +1479,28 @@ router.post("/split", function (req, res, next) {
   Files.findOne({
     where: {
       id: req.body.file_id,
-      [Sequelize.Op.or]: {
-        file_owner: req.user,
-        [Sequelize.Op.and]: {
-          file_owner: "group",
-          file_owner_group: { [Sequelize.Op.overlap]: groups },
+      [Sequelize.Op.or]: [
+        { file_owner: req.user },
+        {
+          [Sequelize.Op.and]: {
+            file_owner: "group",
+            file_owner_group: { [Sequelize.Op.overlap]: groups },
+          },
         },
-      },
+        {
+          [Sequelize.Op.and]: {
+            public: "1",
+            publicity_type: "list_edit",
+            public_editors: { [Sequelize.Op.contains]: [req.user] },
+          },
+        },
+        {
+          [Sequelize.Op.and]: {
+            public: "1",
+            publicity_type: "all_edit",
+          },
+        },
+      ],
     },
   })
     .then((file) => {
@@ -1235,8 +1513,10 @@ router.post("/split", function (req, res, next) {
         });
       } else {
         let ids = req.body.ids;
-        ids = ids.join(",");
-        ids = ids || "NULL";
+
+        if (ids == null) ids = null;
+        if (!Array.isArray(ids)) ids = [ids];
+        if (ids.length === 0) ids = null;
 
         let geom = splitFeature.geometry;
         geom.crs = { type: "name", properties: { name: "EPSG:4326" } };
@@ -1246,7 +1526,7 @@ router.post("/split", function (req, res, next) {
           "(",
           "SELECT id, file_id, level, intent, properties, geom",
           "FROM user_features AS a",
-          "WHERE a.id IN (" + ids + ") AND a.file_id = :file_id",
+          "WHERE a.id IN (:ids) AND a.file_id = :file_id",
           ") AS g",
         ].join(" ");
         sequelize
@@ -1254,9 +1534,10 @@ router.post("/split", function (req, res, next) {
             replacements: {
               file_id: parseInt(req.body.file_id),
               geom: JSON.stringify(geom),
+              ids: ids,
             },
           })
-          .spread((results) => {
+          .then(([results]) => {
             //reformat results
             let r = [];
             for (var i = 0; i < results.length; i++) {
@@ -1290,6 +1571,7 @@ router.post("/split", function (req, res, next) {
                   time,
                   null,
                   8,
+                  req.user,
                   () => {
                     res.send({
                       status: "success",
@@ -1498,7 +1780,7 @@ const makeMasterFilesTEST = (leadGroupName, callback) => {
         public: "1",
         hidden: "0",
       },
-    }).spread(function (userResult, created) {
+    }).then(function ([userResult, created]) {
       makeMasterFileTEST(i + 1, Table);
       return null;
     });

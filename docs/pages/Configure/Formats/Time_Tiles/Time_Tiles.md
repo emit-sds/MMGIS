@@ -12,27 +12,43 @@ If you're serving from `/Missions`, MMGIS offers a simple in-built method for qu
 
 ## Tileset Path Structure
 
+### Overview
+
 A `{t}` parameter is added to the full tileset path. `.../layer/{t}/{z}/{x}/{y}.png` It is based on an ISO 9601 time but with `:` replaced with underscores and without the final `Z`.
 
 Examples:
 
-- /Missions/MSL/Layers/ExampleTimeTiles/2022-09-07T00_00_00/16/57776/31916.png
-- /Missions/MSL/Layers/ExampleTimeTiles/2022-10-07T00_00_00/16/57776/31916.png
-- /Missions/MSL/Layers/ExampleTimeTiles/2022-11-07T00_00_00/16/57776/31916.png
+- /Missions/MSL/Layers/ExampleTimeTiles/2022-09-07T00_00_00Z/16/57776/31916.png
+- /Missions/MSL/Layers/ExampleTimeTiles/2022-10-07T00_00_00Z/16/57776/31916.png
+- /Missions/MSL/Layers/ExampleTimeTiles/2022-11-07T00_00_00Z/16/57776/31916.png
+
+### Folder Tags
 
 Additionally `{t}` may be appended with a name. The `time` is accessed by splitting on the new delimiter `Z-` and taking the first element.
 
-Example:
+Examples:
 
-- /Missions/MSL/Layers/ExampleTimeTiles/2022-09-07T00_00_00Z-LosAngeles/16/57776/31916.png
-- /Missions/MSL/Layers/ExampleTimeTiles/2022-10-07T00_00_00Z-NewYork/16/57776/31916.png
-- /Missions/MSL/Layers/ExampleTimeTiles/2022-11-07T00_00_00Z-London/16/57776/31916.png
+- /Missions/MSL/Layers/ExampleTimeTiles/2022-09-07T00_00_00Z--LosAngeles/16/57776/31916.png
+- /Missions/MSL/Layers/ExampleTimeTiles/2022-10-07T00_00_00Z--NewYork/16/57776/31916.png
+- /Missions/MSL/Layers/ExampleTimeTiles/2022-11-07T00_00_00Z--London/16/57776/31916.png
+
+_Note:_ Do not change the configured url to include the appended folder name. It should remain `/{t}/`. The time folder name will be parsed accordingly and `.../{t}-LosAngeles/...` will break the path.
+
+### Time Ranges
+
+Time ranges are supported as well. Join start and ending times with `-to-`.
+
+Examples:
+
+- /Missions/MSL/Layers/ExampleTimeTiles/2022-09-07T00_00_00Z-to-2022-10-01T00_00_00Z/16/57776/31916.png
+- /Missions/MSL/Layers/ExampleTimeTiles/2022-10-07T00_00_00Z-to-2022-11-01T00_00_00Z/16/57776/31916.png
+- /Missions/MSL/Layers/ExampleTimeTiles/2022-11-07T00_00_00Z-to-2022-12-01T00_00_00Z--London/16/57776/31916.png
 
 ## Configuration
 
 For a tile layer in the Layers Tab, simply:
 
-1. Include the proper `{t}` parameter in its URL (see above).
+1. Include the proper `/{t}/` parameter in its URL (see above).
 2. Set `Time Enabled` to `True`.
 
 Note: The positioning of `{t}` does offer some flexibility. Be aware though that MMGIS will scan its full directory for other times to compare too. `../{z}/{x}/{y}/{t}.png` while valid, has not been tested and may be expensive. MMGIS caches active time tile directories for 30 minutes.

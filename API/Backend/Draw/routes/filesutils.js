@@ -42,7 +42,7 @@ function getfile(req, res, next) {
           },
         }
       )
-      .spread((results) => {
+      .then(([results]) => {
         let geojson = { type: "FeatureCollection", features: [] };
         for (let i = 0; i < results.length; i++) {
           let properties = results[i].properties;
@@ -98,6 +98,16 @@ function getfile(req, res, next) {
     req.body.id = JSON.parse(req.body.id);
     if (typeof req.body.id !== "number") idArray = true;
 
+    let ids = req.body.id;
+
+    if (idArray) {
+      if (ids == null) ids = null;
+      if (!Array.isArray(ids)) ids = [ids];
+      if (ids.length === 0) ids = null;
+    } else {
+      if (ids == null) ids = null;
+    }
+
     let atThisTime = published
       ? Math.floor(Date.now())
       : req.body.time || Math.floor(Date.now());
@@ -141,18 +151,16 @@ function getfile(req, res, next) {
                 " rows only",
               {
                 replacements: {
-                  id: req.body.id,
+                  id: ids,
                   time: atThisTime,
                 },
               }
             )
-            .spread((results) => {
+            .then(([results]) => {
               let bestHistory = [];
               for (let i = 0; i < results.length; i++) {
                 bestHistory = bestHistory.concat(results[i].history);
               }
-              bestHistory = bestHistory.join(",");
-              bestHistory = bestHistory || "NULL";
 
               //Find best history
               sequelize
@@ -168,15 +176,19 @@ function getfile(req, res, next) {
                     (idArray ? "file_id IN (:id)" : "file_id=:id") +
                     " " +
                     "AND id IN (" +
-                    bestHistory +
+                    ":bestHistory" +
                     ")",
                   {
                     replacements: {
-                      id: req.body.id,
+                      id: ids,
+                      bestHistory:
+                        bestHistory != null && bestHistory.length > 0
+                          ? bestHistory
+                          : null,
                     },
                   }
                 )
-                .spread((results) => {
+                .then(([results]) => {
                   let geojson = { type: "FeatureCollection", features: [] };
                   for (let i = 0; i < results.length; i++) {
                     let properties = JSON.parse(results[i].properties);

@@ -10,7 +10,7 @@ showdown.setFlavor('github')
 const LayerInfo = {
     converter: new showdown.Converter(),
     open: function (layerName) {
-        const layer = L_.layersNamed[layerName]
+        const layer = L_.layers.data[layerName]
 
         if (layer == null) return
 
@@ -18,12 +18,9 @@ const LayerInfo = {
         if (layer.type === 'vector')
             try {
                 numberOfFeatures = ` (${
-                    L_.layersGroup[layerName].getLayers().length
+                    L_.layers.layer[layerName].getLayers().length
                 } Features)`
             } catch (e) {}
-
-        let title = 'Layer'
-        if (layer.type === 'header') title = 'Layer Group'
 
         let type = layer.type
         if (type === 'tile') type = 'raster'
@@ -37,7 +34,7 @@ const LayerInfo = {
                         `<div id='LayerInfoModalClose'><i class='mmgisHoverBlue mdi mdi-close mdi-18px'></i></div>`,
                     `</div>`,
                     `<div id='LayerInfoModalContent'>`,
-                        `<div id='LayerInfoModalInnerTitle'>${title}: ${layer.name}</div>`,
+                        `<div id='LayerInfoModalInnerTitle'>${layer.display_name}</div>`,
                         `<div id='LayerInfoModalInnerSubtitle'>${type}<span>${numberOfFeatures}</span></div>`,
 
                             layer.tags && layer.tags.length > 0 ? 
@@ -45,17 +42,19 @@ const LayerInfo = {
                                     `<div id='LayerInfoModalTags'>`,
                                         `<div id='LayerInfoModalTagsContent'>`,
                                             layer.tags.map((tag) => {
-                                                let catname, tagname
-                                                if( tag.indexOf(':') > -1)
-                                                    [catname, ...tagname] = tag.split(":");
-                                                else tagname = tag
+                                                if( typeof tag === 'string' && tag.length > 0) {
+                                                    let catname, tagname
+                                                    if( tag.indexOf(':') > -1)
+                                                        [catname, ...tagname] = tag.split(":");
+                                                    else tagname = tag
 
-                                                return [
-                                                    `<div class='LayerInfoModalTag'>`,
-                                                        catname != null ? `<div class='LayerInfoModalTagCat'>${catname}</div>` : '',
-                                                        `<div class='LayerInfoModalTagName'>${tagname}</div>`,
-                                                    `</div>`
-                                                ].join('\n')
+                                                    return [
+                                                        `<div class='LayerInfoModalTag'>`,
+                                                            catname != null ? `<div class='LayerInfoModalTagCat'>${catname}</div>` : '',
+                                                            `<div class='LayerInfoModalTagName'>${tagname}</div>`,
+                                                        `</div>`
+                                                    ].join('\n')
+                                                }
                                             }).join('\n'),
                                         `</div>`,
                                     `</div>`
@@ -66,6 +65,7 @@ const LayerInfo = {
                                 layer.description ? LayerInfo.converter.makeHtml(layer.description) : `<div class='LayerInfoModalNone'>No Description</div>`,
                             `</div>`,
                         `</div>`,
+                        `<div id='LayerInfoModalInnerUUID'>${layer.uuid}</div>`,
                     `</div>`,
                 `</div>`
             ].join('\n'),

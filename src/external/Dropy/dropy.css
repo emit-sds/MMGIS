@@ -127,7 +127,7 @@ dd {
 }
 
 .dropy.open .dropy__content ul {
-    max-height: 18.75em;
+    max-height: 20em;
     overflow-y: auto;
     opacity: 1;
 }
@@ -170,4 +170,7 @@ dd {
 }
 .dropy.openUp .dropy__content > ul {
     transform: translateY(-100%);
+}
+.dropy.openHorizontal .dropy__content > ul {
+    display: flex;
 }

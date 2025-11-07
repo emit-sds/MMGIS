@@ -1,5 +1,5 @@
-import React from 'react'
-import ReactDOM from 'react-dom'
+import React, { StrictMode } from 'react'
+import { render } from 'react-dom'
 import './index.css'
 
 import RefreshAuth from './pre/RefreshAuth'
@@ -7,6 +7,7 @@ import RefreshAuth from './pre/RefreshAuth'
 import $ from 'jquery'
 import L from './external/Leaflet/leaflet1.5.1' // './external/Leaflet/leaflet1.5.1_DEBUG' //
 import ld from './external/Leaflet/leaflet.draw'
+import pd from './external/Leaflet/Path.Drag'
 import lgu from './external/Leaflet/leaflet.geometryutil'
 import ls from './external/Leaflet/leaflet.snap'
 import lc from './external/Leaflet/leaflet-corridor'
@@ -63,10 +64,10 @@ import 'tippy.js/dist/tippy.css'
 import App from './App'
 import * as serviceWorker from './serviceWorker'
 
-ReactDOM.render(
-    <React.StrictMode>
+render(
+    <StrictMode>
         <App />
-    </React.StrictMode>,
+    </StrictMode>,
     document.getElementById('root')
 )
 

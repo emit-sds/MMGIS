@@ -11,6 +11,8 @@
   https://github.com/xtk93x/Leaflet.TileLayer.ColorFilter
 */
 
+import F_ from '../../Basics/Formulae_/Formulae_'
+
 var colorFilterExtension = {
     intialize: function (url, options) {
         L.TileLayer.prototype.initialize.call(this, url, options)
@@ -23,7 +25,39 @@ var colorFilterExtension = {
             .replace(/{starttime}/g, this.options.starttime)
             .replace(/{endtime}/g, this.options.endtime)
 
-        if (this.options.time) url += `?time=${this.options.endtime}`
+        if (
+            this.options.customTimes?.times &&
+            this.options.customTimes?.times.length > 0
+        ) {
+            for (let i = 0; i < this.options.customTimes.times.length; i++) {
+                url = url.replace(
+                    new RegExp(`{customtime.${i}}`, 'g'),
+                    this.options.customTimes.times[i]
+                )
+            }
+        }
+
+        if (this.options.time && this.options.tileFormat === 'tms') {
+            let paramDelimiter = '?'
+            let urlParams = false
+            if (url.indexOf('?') !== -1) {
+                urlParams = new URLSearchParams(url.split('?')[1])
+                paramDelimiter = '&'
+            }
+
+            if (urlParams == false || !urlParams.has('starttime')) {
+                url += `${paramDelimiter}starttime=${this.options.starttime}`
+                paramDelimiter = '&'
+            }
+            if (urlParams == false || !urlParams.has('time')) {
+                url += `${paramDelimiter}time=${this.options.endtime}`
+                paramDelimiter = '&'
+            }
+            if (urlParams == false || !urlParams.has('composite')) {
+                if (this.options.compositeTile === true)
+                    url += `${paramDelimiter}composite=true`
+            }
+        }
         return url
     },
     colorFilter: function () {
@@ -91,6 +125,38 @@ var colorFilterExtension = {
             this._container.style['mix-blend-mode'] = this.colorBlend()
         }
     },
+    // Reduces tile flicker. This and refresh() from https://github.com/Leaflet/Leaflet/issues/6659#issuecomment-813328622
+    _refreshTileUrl: function (tile, url) {
+        //use a image in background, so that only replace the actual tile, once image is loaded in cache!
+        let img = new Image()
+        img.onload = function (e) {
+            L.Util.requestAnimFrame(function () {
+                tile.el.src = url
+                tile.el.style.opacity = 1
+            })
+        }
+        img.onerror = function (e) {
+            tile.el.src = F_.getBase64Transparent256Tile()
+            tile.el.style.opacity = 0
+        }
+        img.src = url
+    },
+    refresh: function (newUrl) {
+        if (newUrl) this._url = newUrl
+        if (this._map == null) return
+        for (let key in this._tiles) {
+            const tile = this._tiles[key]
+            if (tile.current && tile.active) {
+                const oldsrc = tile.el.src
+                const newsrc = this.getTileUrl(tile.coords)
+
+                if (oldsrc != newsrc) {
+                    //L.DomEvent.off(tile, 'load', this._tileOnLoad); ... this doesnt work!
+                    this._refreshTileUrl(tile, newsrc)
+                }
+            }
+        }
+    },
 }
 
 var wmsExtension = {
@@ -136,15 +202,15 @@ var wmsExtension = {
         uppercase: true,
     },
 
-    initialize: function (url, options) {
+    initialize: function (url, options, wmsOptions) {
         this._url = url
 
         var wmsParams = L.extend({}, this.defaultWmsParams)
 
         // all keys that are not TileLayer options go to WMS params
-        for (var i in options) {
+        for (var i in wmsOptions) {
             if (!(i in this.extensionOptions)) {
-                wmsParams[i] = options[i]
+                wmsParams[i] = wmsOptions[i]
             }
         }
         options = L.setOptions(this, options)
@@ -192,6 +258,22 @@ var wmsExtension = {
                     .replace('{time}', this.options.time)
                     .replace('{starttime}', this.options.starttime)
                     .replace('{endtime}', this.options.endtime)
+
+                if (
+                    this.options.customTimes?.times &&
+                    this.options.customTimes.times.length > 0
+                ) {
+                    for (
+                        let i = 0;
+                        i < this.options.customTimes.times.length;
+                        i++
+                    ) {
+                        wmsParamsUpdate[key] = wmsParamsUpdate[key].replace(
+                            new RegExp(`{customtime.${i}}`, 'g'),
+                            this.options.customTimes.times[i]
+                        )
+                    }
+                }
             } else {
                 wmsParamsUpdate[key] = this.wmsParams[key]
             }
@@ -232,7 +314,7 @@ L.TileLayer.ColorFilter = L.TileLayer.extend(colorFilterExtension)
 
 // We can't extend an already extended so we'll merge by hand
 L.TileLayer.WMSColorFilter = L.TileLayer.extend(
-    Object.assign(wmsExtension, colorFilterExtension)
+    Object.assign(colorFilterExtension, wmsExtension)
 )
 
 L.tileLayer.colorFilter = function (url, options) {
@@ -243,17 +325,29 @@ L.tileLayer.colorFilter = function (url, options) {
         const wmsOptions = {}
         const urlParams = new URLSearchParams(urlParamString)
         const entries = urlParams.entries()
+
         for (const entry of entries) {
             wmsOptions[entry[0].toUpperCase()] = entry[1]
         }
+        if (wmsOptions.TILESIZE != null) {
+            wmsOptions.tileSize = parseInt(wmsOptions.TILESIZE)
+            delete wmsOptions.TILESIZE
+        }
+
         if (wmsOptions.LAYERS == null)
             console.warn(
                 `WARNING: WMS layer has no "layers" parameter in the url - ${url}`
             )
 
-        return new L.TileLayer.WMSColorFilter(urlBaseString, wmsOptions)
+        return new L.TileLayer.WMSColorFilter(
+            urlBaseString,
+            options,
+            wmsOptions
+        )
     }
 
     url = url.replace(/{t}/g, '_time_')
-    return new L.TileLayer.ColorFilter(url, options)
+    const tileLayer = new L.TileLayer.ColorFilter(url, options)
+
+    return tileLayer
 }

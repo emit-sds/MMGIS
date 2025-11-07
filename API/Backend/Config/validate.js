@@ -39,6 +39,7 @@ const validateStructure = (config) => {
 const validateLayers = (config) => {
   let errs = [];
 
+  let existingUUIDs = [];
   Utils.traverseLayers(config.layers, (layer) => {
     // Check layer name
     const validNameErrs = isValidLayerName(layer.name);
@@ -90,10 +91,17 @@ const validateLayers = (config) => {
           err(`Unknown layer type: '${layer.type}'`, ["layers[layer].type"])
         );
     }
-  });
 
-  errs = errs.concat(hasDuplicateLayerNames(config));
-  errs = errs.concat(hasNonHeaderWithSublayers(config));
+    if (layer.uuid != null) {
+      if (existingUUIDs.includes(layer.uuid)) {
+        errs = errs.concat([
+          err(
+            `Found a layer with duplicate uuid: ${layer.name} - ${layer.uuid}`
+          ),
+        ]);
+      } else existingUUIDs.push(layer.uuid);
+    }
+  });
 
   return errs;
 };
@@ -108,24 +116,8 @@ const isValidLayerName = (name) => {
     errs.push(
       err("Found a layer with name: undefined", ["layers[layer].name"])
     );
-  if (!validCSSName(name))
-    errs.push(
-      err(
-        `Layer: '${name}' must not be empty, a non-string, contain symbols or begin with numbers.`,
-        ["layers[layer].name"]
-      )
-    );
 
   return errs;
-
-  function validCSSName(name) {
-    if (name == null || typeof name !== "string") return false;
-
-    const match = name.match(/[_A-Z ]+[_A-Z0-9- ]+/gi);
-    if (match && match[0].length === name.length) return true;
-
-    return false;
-  }
 };
 
 const isValidUrl = (layer) => {
@@ -288,34 +280,6 @@ const hasNonHeaderWithSublayers = (config) => {
         ])
       );
   });
-  return errs;
-};
-
-const hasDuplicateLayerNames = (config) => {
-  let allNames = [];
-
-  depthTraversal(config.layers, 0);
-
-  function depthTraversal(node, depth) {
-    for (var i = 0; i < node.length; i++) {
-      allNames.push(node[i].name);
-      //Add other feature information while we're at it
-      if (node[i].sublayers != null && node[i].sublayers.length > 0) {
-        depthTraversal(node[i].sublayers, depth + 1);
-      }
-    }
-  }
-
-  let unique = [];
-  const errs = [];
-  allNames.forEach((name) => {
-    if (!unique.includes(name)) unique.push(name);
-    else
-      errs.push(
-        err(`Found duplicate layer name: '${name}'`, ["layers[layer].name"])
-      );
-  });
-
   return errs;
 };
 

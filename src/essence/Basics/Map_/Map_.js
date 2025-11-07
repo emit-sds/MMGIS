@@ -7,6 +7,7 @@ import {
     constructVectorLayer,
     constructSublayers,
 } from '../Layers_/LayerConstructors'
+import Filtering from '../Layers_/Filtering/Filtering'
 import Viewer_ from '../Viewer_/Viewer_'
 import Globe_ from '../Globe_/Globe_'
 import ToolController_ from '../ToolController_/ToolController_'
@@ -17,6 +18,9 @@ import { Kinds } from '../../../pre/tools'
 import DataShaders from '../../Ancillary/DataShaders'
 import calls from '../../../pre/calls'
 import TimeControl from '../../Ancillary/TimeControl'
+
+import gjv from 'geojson-validation'
+
 let L = window.L
 
 let essenceFina = function () {}
@@ -109,6 +113,7 @@ let Map_ = {
             this.map = L.map('map', {
                 zoomControl: hasZoomControl,
                 editable: true,
+                keyboard: false,
                 crs: crs,
                 zoomDelta: 0.05,
                 zoomSnap: 0,
@@ -122,6 +127,7 @@ let Map_ = {
             this.map = L.map('map', {
                 zoomControl: hasZoomControl,
                 editable: true,
+                keyboard: false,
                 fadeAnimation: shouldFade,
                 //crs: crs,
                 //zoomDelta: 0.05,
@@ -185,7 +191,7 @@ let Map_ = {
         d3.select('.leaflet-control-attribution').remove()
 
         //Make our layers
-        makeLayers(L_.layersData)
+        makeLayers(L_.layers.dataFlat)
 
         //Just in case we have no layers
         allLayersLoaded()
@@ -203,16 +209,18 @@ let Map_ = {
             $('.map-autoset-zoom').text(Map_.map.getZoom())
         })
 
-        this.map.on('move', (e) => {
-            const c = this.map.getCenter()
-            Globe_.controls.link.linkMove(c.lng, c.lat)
-        })
-        this.map.on('mousemove', (e) => {
-            Globe_.controls.link.linkMouseMove(e.latlng.lng, e.latlng.lat)
-        })
-        this.map.on('mouseout', (e) => {
-            Globe_.controls.link.linkMouseOut()
-        })
+        if (Globe_.controls.link) {
+            this.map.on('move', (e) => {
+                const c = this.map.getCenter()
+                Globe_.controls.link.linkMove(c.lng, c.lat)
+            })
+            this.map.on('mousemove', (e) => {
+                Globe_.controls.link.linkMouseMove(e.latlng.lng, e.latlng.lat)
+            })
+            this.map.on('mouseout', (e) => {
+                Globe_.controls.link.linkMouseOut()
+            })
+        }
 
         // Clear the selected feature if clicking on the map where there are no features
         Map_.map.addEventListener('click', clearOnMapClick)
@@ -280,8 +288,8 @@ let Map_ = {
     },
     //returns true if the map has the layer
     hasLayer: function (layername) {
-        if (L_.layersGroup[layername]) {
-            return Map_.map.hasLayer(L_.layersGroup[layername])
+        if (L_.layers.layer[layername]) {
+            return Map_.map.hasLayer(L_.layers.layer[layername])
         }
         return false
     },
@@ -303,7 +311,7 @@ let Map_ = {
     removeTempTileLayer: function () {
         this.rmNotNull(this.tempTileLayer)
     },
-    //Removes the map layer if it isnt null
+    //Removes the map layer if it isn't null
     rmNotNull: function (layer) {
         if (layer != null) {
             this.map.removeLayer(layer)
@@ -315,28 +323,30 @@ let Map_ = {
         let hasIndex = []
         let hasIndexRaster = []
 
-        for (let i = L_.layersOrdered.length - 1; i >= 0; i--) {
-            if (Map_.hasLayer(L_.layersOrdered[i])) {
-                if (L_.layersNamed[L_.layersOrdered[i]]) {
-                    if (L_.layersNamed[L_.layersOrdered[i]].type === 'vector') {
-                        if (L_.layersGroupSublayers[L_.layersOrdered[i]]) {
-                            for (let s in L_.layersGroupSublayers[
-                                L_.layersOrdered[i]
+        for (let i = L_._layersOrdered.length - 1; i >= 0; i--) {
+            if (Map_.hasLayer(L_._layersOrdered[i])) {
+                if (L_.layers.data[L_._layersOrdered[i]]) {
+                    if (
+                        L_.layers.data[L_._layersOrdered[i]].type === 'vector'
+                    ) {
+                        if (L_.layers.attachments[L_._layersOrdered[i]]) {
+                            for (let s in L_.layers.attachments[
+                                L_._layersOrdered[i]
                             ]) {
                                 Map_.rmNotNull(
-                                    L_.layersGroupSublayers[
-                                        L_.layersOrdered[i]
-                                    ][s].layer
+                                    L_.layers.attachments[L_._layersOrdered[i]][
+                                        s
+                                    ].layer
                                 )
                             }
                         }
                         Map_.map.removeLayer(
-                            L_.layersGroup[L_.layersOrdered[i]]
+                            L_.layers.layer[L_._layersOrdered[i]]
                         )
                         hasIndex.push(i)
                     } else if (
-                        L_.layersNamed[L_.layersOrdered[i]].type === 'tile' ||
-                        L_.layersNamed[L_.layersOrdered[i]].type === 'data'
+                        L_.layers.data[L_._layersOrdered[i]].type === 'tile' ||
+                        L_.layers.data[L_._layersOrdered[i]].type === 'data'
                     ) {
                         hasIndexRaster.push(i)
                     }
@@ -346,29 +356,29 @@ let Map_ = {
 
         // First only vectors
         for (let i = 0; i < hasIndex.length; i++) {
-            if (L_.layersGroupSublayers[L_.layersOrdered[hasIndex[i]]]) {
-                for (let s in L_.layersGroupSublayers[
-                    L_.layersOrdered[hasIndex[i]]
+            if (L_.layers.attachments[L_._layersOrdered[hasIndex[i]]]) {
+                for (let s in L_.layers.attachments[
+                    L_._layersOrdered[hasIndex[i]]
                 ]) {
                     if (
-                        L_.layersGroupSublayers[L_.layersOrdered[hasIndex[i]]][
-                            s
-                        ].on
+                        L_.layers.attachments[L_._layersOrdered[hasIndex[i]]][s]
+                            .on
                     ) {
                         if (
-                            L_.layersGroupSublayers[
-                                L_.layersOrdered[hasIndex[i]]
+                            L_.layers.attachments[
+                                L_._layersOrdered[hasIndex[i]]
                             ][s].type !== 'model'
-                        )
+                        ) {
                             Map_.map.addLayer(
-                                L_.layersGroupSublayers[
-                                    L_.layersOrdered[hasIndex[i]]
+                                L_.layers.attachments[
+                                    L_._layersOrdered[hasIndex[i]]
                                 ][s].layer
                             )
+                        }
                     }
                 }
             }
-            Map_.map.addLayer(L_.layersGroup[L_.layersOrdered[hasIndex[i]]])
+            Map_.map.addLayer(L_.layers.layer[L_._layersOrdered[hasIndex[i]]])
         }
 
         L_.enforceVisibilityCutoffs()
@@ -376,37 +386,70 @@ let Map_ = {
         // Now only rasters
         // They're separate because its better to only change the raster z-index
         for (let i = 0; i < hasIndexRaster.length; i++) {
-            L_.layersGroup[L_.layersOrdered[hasIndexRaster[i]]].setZIndex(
-                L_.layersOrdered.length +
+            L_.layers.layer[L_._layersOrdered[hasIndexRaster[i]]].setZIndex(
+                L_._layersOrdered.length +
                     1 -
-                    L_.layersOrdered.indexOf(
-                        L_.layersOrdered[hasIndexRaster[i]]
+                    L_._layersOrdered.indexOf(
+                        L_._layersOrdered[hasIndexRaster[i]]
                     )
             )
         }
     },
-    refreshLayer: async function (layerObj) {
+    refreshLayer: async function (layerObj, cb, skipOrderedBringToFront) {
+        // If it's a dynamic extent layer, just re-call its function
+        if (
+            L_._onSpecificLayerToggleSubscriptions[
+                `dynamicextent_${layerObj.name}`
+            ] != null
+        ) {
+            if (L_.layers.on[layerObj.name])
+                L_._onSpecificLayerToggleSubscriptions[
+                    `dynamicextent_${layerObj.name}`
+                ].func(layerObj.name)
+
+            if (typeof cb === 'function') cb()
+            return true
+        }
+
         // We need to find and remove all points on the map that belong to the layer
         // Not sure if there is a cleaner way of doing this
-        for (var i = L_.layersOrdered.length - 1; i >= 0; i--) {
+        for (var i = L_._layersOrdered.length - 1; i >= 0; i--) {
             if (
-                L_.layersNamed[L_.layersOrdered[i]] &&
-                L_.layersNamed[L_.layersOrdered[i]].type == 'vector' &&
-                L_.layersNamed[L_.layersOrdered[i]].name == layerObj.name
+                L_.layers.data[L_._layersOrdered[i]] &&
+                L_.layers.data[L_._layersOrdered[i]].type == 'vector' &&
+                L_.layers.data[L_._layersOrdered[i]].name == layerObj.name
             ) {
-                const wasOn = L_.toggledArray[layerObj.name]
-                if (wasOn) L_.toggleLayer(L_.layersNamed[layerObj.name]) // turn off if on
-                // fake on
-                L_.toggledArray[layerObj.name] = true
-                await makeLayer(layerObj, true)
-                L_.addVisible(Map_, [layerObj.name])
+                if (L_._layersBeingMade[layerObj.name] !== true) {
+                    const wasOn = L_.layers.on[layerObj.name]
 
-                // turn off if was off
-                if (wasOn) L_.toggledArray[layerObj.name] = false
-                L_.toggleLayer(L_.layersNamed[layerObj.name]) // turn back on/off
+                    if (wasOn)
+                        L_.toggleLayer(
+                            L_.layers.data[layerObj.name],
+                            skipOrderedBringToFront
+                        ) // turn off if on
 
-                L_.enforceVisibilityCutoffs()
-                return
+                    // fake on
+                    L_.layers.on[layerObj.name] = true
+                    await makeLayer(layerObj, true, null)
+                    L_.addVisible(Map_, [layerObj.name])
+
+                    // turn off if was off
+                    if (wasOn) L_.layers.on[layerObj.name] = false
+                    L_.toggleLayer(
+                        L_.layers.data[layerObj.name],
+                        skipOrderedBringToFront
+                    ) // turn back on/off
+
+                    L_.enforceVisibilityCutoffs()
+                } else {
+                    console.error(
+                        `ERROR - refreshLayer: Cannot make layer ${layerObj.display_name}/${layerObj.name} as it's already being made!`
+                    )
+                    if (typeof cb === 'function') cb()
+                    return false
+                }
+                if (typeof cb === 'function') cb()
+                return true
             }
         }
     },
@@ -508,44 +551,6 @@ let Map_ = {
     allLayersLoaded: allLayersLoaded,
 }
 
-//Specific internal functions likely only to be used once
-function getLayersChosenNamePropVal(feature, layer) {
-    //These are what you'd think they'd be (Name could be thought of as key)
-    var propertyName, propertyValue
-    var foundThroughVariables = false
-    if (
-        layer.hasOwnProperty('options') &&
-        layer.options.hasOwnProperty('layerName')
-    ) {
-        var l = L_.layersNamed[layer.options.layerName]
-        if (
-            l.hasOwnProperty('variables') &&
-            l.variables.hasOwnProperty('useKeyAsName')
-        ) {
-            propertyName = l.variables['useKeyAsName']
-            if (feature.properties.hasOwnProperty(propertyName)) {
-                propertyValue = F_.getIn(feature.properties, propertyName)
-                if (propertyValue != null) foundThroughVariables = true
-            }
-        }
-    }
-    // Use first key
-    if (!foundThroughVariables) {
-        for (var key in feature.properties) {
-            //Store the current feature's key
-            propertyName = key
-            //Be certain we have that key in the feature
-            if (feature.properties.hasOwnProperty(key)) {
-                //Store the current feature's value
-                propertyValue = feature.properties[key]
-                //Break out of for loop since we're done
-                break
-            }
-        }
-    }
-    return { name: propertyName, value: propertyValue }
-}
-
 //Takes an array of layer objects and makes them map layers
 function makeLayers(layersObj) {
     //Make each layer (backwards to maintain draw order)
@@ -554,450 +559,510 @@ function makeLayers(layersObj) {
     }
 }
 //Takes the layer object and makes it a map layer
-async function makeLayer(layerObj, evenIfOff, forceGeoJSON) {
-    //Decide what kind of layer it is
-    //Headers do not need to be made
-    if (layerObj.type != 'header') {
-        //Simply call the appropriate function for each layer type
-        switch (layerObj.type) {
-            case 'vector':
-                await makeVectorLayer(evenIfOff, null, forceGeoJSON)
-                break
-            case 'tile':
-                makeTileLayer()
-                break
-            case 'vectortile':
-                makeVectorTileLayer()
-                break
-            case 'query':
-                await makeVectorLayer(false, true, forceGeoJSON)
-                break
-            case 'data':
-                makeDataLayer()
-                break
-            case 'model':
-                //Globe only
-                makeModelLayer()
-                break
-            default:
-                console.warn('Unknown layer type: ' + layerObj.type)
-        }
-    }
-
-    //Default is onclick show full properties and onhover show 1st property
-    Map_.onEachFeatureDefault = onEachFeatureDefault
-    function onEachFeatureDefault(feature, layer) {
-        var pv = getLayersChosenNamePropVal(feature, layer)
-
-        layer['useKeyAsName'] = pv.name
-        if (
-            layer.hasOwnProperty('options') &&
-            layer.options.hasOwnProperty('layerName')
-        ) {
-            L_.layersNamed[layer.options.layerName].useKeyAsName = pv.name
-        }
-
-        if (
-            pv.hasOwnProperty('name') &&
-            pv.name != null &&
-            typeof pv.name === 'string'
-        ) {
-            var propertyName = pv.name.capitalizeFirstLetter()
-            var propertyValue = pv.value
-
-            //Add a mouseover event to the layer
-            layer.on('mouseover', function () {
-                //Make it turn on CursorInfo and show name and value
-                CursorInfo.update(
-                    propertyName + ': ' + propertyValue,
-                    null,
-                    false
-                )
-            })
-            //Add a mouseout event
-            layer.on('mouseout', function () {
-                //Make it turn off CursorInfo
-                CursorInfo.hide()
-            })
-        }
-
-        if (
-            !(
-                feature.style &&
-                feature.style.hasOwnProperty('noclick') &&
-                feature.style.noclick
+async function makeLayer(
+    layerObj,
+    evenIfOff,
+    forceGeoJSON,
+    id,
+    forceMake,
+    stopLoops
+) {
+    return new Promise(async (resolve, reject) => {
+        const layerName = L_.asLayerUUID(layerObj.name)
+        if (forceMake !== true && L_._layersBeingMade[layerName] === true) {
+            console.error(
+                `ERROR - makeLayer: Cannot make layer ${layerObj.display_name}/${layerObj.name} as it's already being made!`
             )
-        ) {
-            //Add a click event to send the data to the info tab
-            layer.on('click', (e) => {
-                featureDefaultClick(feature, layer, e)
-            })
-        }
-    }
-
-    Map_.featureDefaultClick = featureDefaultClick
-    function featureDefaultClick(feature, layer, e) {
-        if (
-            ToolController_.activeTool &&
-            ToolController_.activeTool.disableLayerInteractions === true
-        )
+            resolve(false)
             return
-
-        //Query dataset links if possible and add that data to the feature's properties
-        if (
-            layer.options.layerName &&
-            L_.layersNamed[layer.options.layerName] &&
-            L_.layersNamed[layer.options.layerName].variables &&
-            L_.layersNamed[layer.options.layerName].variables.datasetLinks
-        ) {
-            const dl =
-                L_.layersNamed[layer.options.layerName].variables.datasetLinks
-            let dlFilled = dl
-            for (let i = 0; i < dlFilled.length; i++) {
-                dlFilled[i].search = F_.getIn(
-                    layer.feature.properties,
-                    dlFilled[i].prop.split('.')
-                )
-            }
-
-            calls.api(
-                'datasets_get',
-                {
-                    queries: JSON.stringify(dlFilled),
-                },
-                function (data) {
-                    const d = data.body
-                    for (let i = 0; i < d.length; i++) {
-                        if (d[i].type == 'images') {
-                            layer.feature.properties.images =
-                                layer.feature.properties.images || []
-                            for (let j = 0; j < d[i].results.length; j++) {
-                                layer.feature.properties.images.push(
-                                    d[i].results[j]
-                                )
-                            }
-                            //remove duplicates
-                            layer.feature.properties.images =
-                                F_.removeDuplicatesInArrayOfObjects(
-                                    layer.feature.properties.images
-                                )
-                        } else {
-                            layer.feature.properties._data = d[i].results
-                        }
-                    }
-                    keepGoing()
-                },
-                function (data) {
-                    keepGoing()
-                }
-            )
         } else {
-            keepGoing()
+            L_._layersBeingMade[layerName] = true
+        }
+        //Decide what kind of layer it is
+        //Headers do not need to be made
+        if (layerObj.type != 'header') {
+            //Simply call the appropriate function for each layer type
+            switch (layerObj.type) {
+                case 'vector':
+                    await makeVectorLayer(
+                        layerObj,
+                        evenIfOff,
+                        null,
+                        forceGeoJSON
+                    )
+                    break
+                case 'tile':
+                    makeTileLayer(layerObj)
+                    break
+                case 'vectortile':
+                    makeVectorTileLayer(layerObj)
+                    break
+                case 'query':
+                    await makeVectorLayer(layerObj, false, true, forceGeoJSON)
+                    break
+                case 'data':
+                    makeDataLayer(layerObj)
+                    break
+                case 'model':
+                    //Globe only
+                    makeModelLayer(layerObj)
+                    break
+                default:
+                    console.warn('Unknown layer type: ' + layerObj.type)
+            }
         }
 
-        function keepGoing() {
-            //View images
-            var propImages = propertiesToImages(
-                feature.properties,
-                layer.options.metadata
-                    ? layer.options.metadata.base_url || ''
-                    : ''
+        // release hold on layer
+        L_._layersBeingMade[layerName] = false
+
+        if (stopLoops !== true && layerObj.type === 'vector') {
+            Filtering.updateGeoJSON(layerObj.name)
+            Filtering.triggerFilter(layerObj.name)
+        }
+
+        resolve(true)
+    })
+}
+
+//Default is onclick show full properties and onhover show 1st property
+Map_.onEachFeatureDefault = onEachFeatureDefault
+function onEachFeatureDefault(feature, layer) {
+    const pv = L_.getLayersChosenNamePropVal(feature, layer)
+
+    layer['useKeyAsName'] = Object.keys(pv)[0]
+    if (
+        layer.hasOwnProperty('options') &&
+        layer.options.hasOwnProperty('layerName')
+    ) {
+        L_.layers.data[layer.options.layerName].useKeyAsName =
+            layer['useKeyAsName']
+    }
+
+    if (typeof layer['useKeyAsName'] === 'string') {
+        //Add a mouseover event to the layer
+        layer.on('mouseover', function () {
+            //Make it turn on CursorInfo and show name and value
+            CursorInfo.update(pv, null, false)
+        })
+        //Add a mouseout event
+        layer.on('mouseout', function () {
+            //Make it turn off CursorInfo
+            CursorInfo.hide()
+        })
+    }
+
+    if (
+        !(
+            feature.style &&
+            feature.style.hasOwnProperty('noclick') &&
+            feature.style.noclick
+        )
+    ) {
+        //Add a click event to send the data to the info tab
+        layer.on('click', (e) => {
+            featureDefaultClick(feature, layer, e)
+        })
+    }
+}
+
+Map_.featureDefaultClick = featureDefaultClick
+function featureDefaultClick(feature, layer, e) {
+    if (
+        ToolController_.activeTool &&
+        ToolController_.activeTool.disableLayerInteractions === true
+    )
+        return
+
+    //Query dataset links if possible and add that data to the feature's properties
+    if (
+        layer.options.layerName &&
+        L_.layers.data[layer.options.layerName] &&
+        L_.layers.data[layer.options.layerName].variables &&
+        L_.layers.data[layer.options.layerName].variables.datasetLinks
+    ) {
+        const dl =
+            L_.layers.data[layer.options.layerName].variables.datasetLinks
+        let dlFilled = dl
+        for (let i = 0; i < dlFilled.length; i++) {
+            dlFilled[i].search = F_.getIn(
+                layer.feature.properties,
+                dlFilled[i].prop.split('.')
             )
+        }
 
-            Kinds.use(
-                L_.layersNamed[layerObj.name].kind,
-                Map_,
-                feature,
-                layer,
-                layer.options.layerName,
-                propImages,
-                e
-            )
-
-            //update url
-            if (layer != null && layer.hasOwnProperty('options')) {
-                var keyAsName
-                if (layer.hasOwnProperty('useKeyAsName')) {
-                    keyAsName = layer.feature.properties[layer.useKeyAsName]
-                } else {
-                    keyAsName = layer.feature.properties[0]
-                }
-            }
-
-            Viewer_.changeImages(propImages, feature)
-            for (var i in propImages) {
-                if (propImages[i].type == 'radargram') {
-                    //Globe_.radargram( layer.options.layerName, feature.geometry, propImages[i].url, propImages[i].length, propImages[i].depth );
-                    break
-                }
-            }
-
-            //figure out how to construct searchStr in URL. For example: a ChemCam target can sometime
-            //be searched by "target sol", or it can be searched by "sol target" depending on config file.
-            var searchToolVars = L_.getToolVars('search')
-            var searchfields = {}
-            if (searchToolVars.hasOwnProperty('searchfields')) {
-                for (var layerfield in searchToolVars.searchfields) {
-                    var fieldString = searchToolVars.searchfields[layerfield]
-                    fieldString = fieldString.split(')')
-                    for (var i = 0; i < fieldString.length; i++) {
-                        fieldString[i] = fieldString[i].split('(')
-                        var li = fieldString[i][0].lastIndexOf(' ')
-                        if (li != -1) {
-                            fieldString[i][0] = fieldString[i][0].substring(
-                                li + 1
+        calls.api(
+            'datasets_get',
+            {
+                queries: JSON.stringify(dlFilled),
+            },
+            function (data) {
+                const d = data.body
+                for (let i = 0; i < d.length; i++) {
+                    if (d[i].type == 'images') {
+                        layer.feature.properties.images =
+                            layer.feature.properties.images || []
+                        for (let j = 0; j < d[i].results.length; j++) {
+                            layer.feature.properties.images.push(
+                                d[i].results[j]
                             )
                         }
+                        //remove duplicates
+                        layer.feature.properties.images =
+                            F_.removeDuplicatesInArrayOfObjects(
+                                layer.feature.properties.images
+                            )
+                    } else {
+                        layer.feature.properties._data = d[i].results
                     }
-                    fieldString.pop()
-                    //0 is function, 1 is parameter
-                    searchfields[layerfield] = fieldString
                 }
+                keepGoing()
+            },
+            function (data) {
+                keepGoing()
             }
-
-            var str = ''
-            if (searchfields.hasOwnProperty(layer.options.layerName)) {
-                var sf = searchfields[layer.options.layerName] //sf for search field
-                for (var i = 0; i < sf.length; i++) {
-                    str += sf[i][1]
-                    str += ' '
-                }
-            }
-            str = str.substring(0, str.length - 1)
-
-            var searchFieldTokens = str.split(' ')
-            var searchStr
-
-            if (searchFieldTokens.length == 2) {
-                if (
-                    searchFieldTokens[0].toLowerCase() ==
-                    layer.useKeyAsName.toLowerCase()
-                ) {
-                    searchStr = keyAsName + ' ' + layer.feature.properties.Sol
-                } else {
-                    searchStr = layer.feature.properties.Sol + ' ' + keyAsName
-                }
-            }
-
-            QueryURL.writeSearchURL([searchStr], layer.options.layerName)
-        }
+        )
+    } else {
+        keepGoing()
     }
 
-    //Pretty much like makePointLayer but without the pointToLayer stuff
-    async function makeVectorLayer(evenIfOff, useEmptyGeoJSON, forceGeoJSON) {
-        return new Promise((resolve, reject) => {
-            if (forceGeoJSON) add(forceGeoJSON)
-            else
-                captureVector(
-                    layerObj,
-                    { evenIfOff: evenIfOff, useEmptyGeoJSON: useEmptyGeoJSON },
-                    add
-                )
+    function keepGoing() {
+        Kinds.use(
+            L_.layers.data[layer.options.layerName].kind,
+            Map_,
+            feature,
+            layer,
+            layer.options.layerName,
+            null,
+            e
+        )
 
-            function add(data) {
-                if (data == null || data === 'off') {
-                    L_.layersLoaded[
-                        L_.layersOrdered.indexOf(layerObj.name)
-                    ] = true
-                    L_.layersGroup[layerObj.name] = data == null ? null : false
-                    allLayersLoaded()
-                    resolve()
-                    return
-                }
-
-                layerObj.style = layerObj.style || {}
-                layerObj.style.layerName = layerObj.name
-
-                layerObj.style.opacity = L_.opacityArray[layerObj.name]
-                //layerObj.style.fillOpacity = L_.opacityArray[layerObj.name]
-
-                const vl = constructVectorLayer(
-                    data,
-                    layerObj,
-                    onEachFeatureDefault,
-                    Map_
-                )
-                L_.layersGroupSublayers[layerObj.name] = vl.sublayers
-                L_.layersGroup[layerObj.name] = vl.layer
-
-                d3.selectAll(
-                    '.' + layerObj.name.replace(/\s/g, '').toLowerCase()
-                ).data(data.features)
-                L_.layersLoaded[L_.layersOrdered.indexOf(layerObj.name)] = true
-                allLayersLoaded()
-
-                resolve()
-            }
-        })
-    }
-
-    function makeTileLayer() {
-        var layerUrl = layerObj.url
-        if (!F_.isUrlAbsolute(layerUrl)) layerUrl = L_.missionPath + layerUrl
-        var bb = null
-        if (layerObj.hasOwnProperty('boundingBox')) {
-            bb = L.latLngBounds(
-                L.latLng(layerObj.boundingBox[3], layerObj.boundingBox[2]),
-                L.latLng(layerObj.boundingBox[1], layerObj.boundingBox[0])
-            )
-        }
-
-        var tileFormat = 'tms'
-        // For backward compatibility with the .tms option
-        if (typeof layerObj.tileformat === 'undefined') {
-            tileFormat =
-                typeof layerObj.tms === 'undefined' ? true : layerObj.tms
-            tileFormat = tileFormat ? 'tms' : 'wmts'
-        } else tileFormat = layerObj.tileformat
-
-        L_.layersGroup[layerObj.name] = L.tileLayer.colorFilter(layerUrl, {
-            minZoom: layerObj.minZoom,
-            maxZoom: layerObj.maxZoom,
-            maxNativeZoom: layerObj.maxNativeZoom,
-            tileFormat: tileFormat,
-            tms: tileFormat === 'tms',
-            //noWrap: true,
-            continuousWorld: true,
-            reuseTiles: true,
-            bounds: bb,
-            time: typeof layerObj.time === 'undefined' ? '' : layerObj.time.end,
-            starttime:
-                typeof layerObj.time === 'undefined' ? '' : layerObj.time.start,
-            endtime:
-                typeof layerObj.time === 'undefined' ? '' : layerObj.time.end,
-        })
-
-        L_.setLayerOpacity(layerObj.name, L_.opacityArray[layerObj.name])
-
-        L_.layersLoaded[L_.layersOrdered.indexOf(layerObj.name)] = true
-        allLayersLoaded()
-    }
-
-    function makeVectorTileLayer() {
-        var layerUrl = layerObj.url
-        if (!F_.isUrlAbsolute(layerUrl)) layerUrl = L_.missionPath + layerUrl
-
-        let urlSplit = layerObj.url.split(':')
-
-        if (
-            urlSplit[0].toLowerCase() === 'geodatasets' &&
-            urlSplit[1] != null
-        ) {
-            layerUrl =
-                '/API/geodatasets/get?layer=' +
-                urlSplit[1] +
-                '&type=mvt&x={x}&y={y}&z={z}'
-        }
-
-        var bb = null
-        if (layerObj.hasOwnProperty('boundingBox')) {
-            bb = L.latLngBounds(
-                L.latLng(layerObj.boundingBox[3], layerObj.boundingBox[2]),
-                L.latLng(layerObj.boundingBox[1], layerObj.boundingBox[0])
-            )
-        }
-
-        var clearHighlight = function () {
-            for (let l of Object.keys(L_.layersNamed)) {
-                if (L_.layersGroup[l]) {
-                    var highlight = L_.layersGroup[l].highlight
-                    if (highlight) {
-                        L_.layersGroup[l].resetFeatureStyle(highlight)
-                    }
-                    L_.layersGroup[l].highlight = null
-                }
+        //update url
+        if (layer != null && layer.hasOwnProperty('options')) {
+            var keyAsName
+            if (layer.hasOwnProperty('useKeyAsName')) {
+                keyAsName = layer.feature.properties[layer.useKeyAsName]
+            } else {
+                keyAsName = layer.feature.properties[0]
             }
         }
-        var timedSelectTimeout = null
-        var timedSelect = function (layer, layerName, e) {
-            clearTimeout(timedSelectTimeout)
-            timedSelectTimeout = setTimeout(
-                (function (layer, layerName, e) {
-                    return function () {
-                        let ell = { latlng: null }
-                        if (e.latlng != null)
-                            ell.latlng = JSON.parse(JSON.stringify(e.latlng))
 
-                        Kinds.use(
-                            L_.layersNamed[layerName].kind,
-                            Map_,
-                            L_.layersGroup[layerName].activeFeatures[0],
-                            layer,
-                            layerName,
-                            null,
-                            ell
-                        )
+        Viewer_.changeImages(feature, layer)
 
-                        ToolController_.getTool('InfoTool').use(
-                            layer,
-                            layerName,
-                            L_.layersGroup[layerName].activeFeatures,
-                            null,
-                            null,
-                            null,
-                            ell
-                        )
-                        L_.layersGroup[layerName].activeFeatures = []
+        //figure out how to construct searchStr in URL. For example: a ChemCam target can sometime
+        //be searched by "target sol", or it can be searched by "sol target" depending on config file.
+        var searchToolVars = L_.getToolVars('search')
+        var searchfields = {}
+        if (searchToolVars.hasOwnProperty('searchfields')) {
+            for (var layerfield in searchToolVars.searchfields) {
+                var fieldString = searchToolVars.searchfields[layerfield]
+                fieldString = fieldString.split(')')
+                for (var i = 0; i < fieldString.length; i++) {
+                    fieldString[i] = fieldString[i].split('(')
+                    var li = fieldString[i][0].lastIndexOf(' ')
+                    if (li != -1) {
+                        fieldString[i][0] = fieldString[i][0].substring(li + 1)
                     }
-                })(layer, layerName, e),
-                100
-            )
+                }
+                fieldString.pop()
+                //0 is function, 1 is parameter
+                searchfields[layerfield] = fieldString
+            }
         }
 
-        var vectorTileOptions = {
-            layerName: layerObj.name,
-            rendererFactory: L.canvas.tile,
-            vectorTileLayerStyles: layerObj.style.vtLayer || {},
-            interactive: true,
-            minZoom: layerObj.minZoom,
-            maxZoom: layerObj.maxZoom,
-            maxNativeZoom: layerObj.maxNativeZoom,
-            getFeatureId: (function (vtId) {
-                return function (f) {
+        var str = ''
+        if (searchfields.hasOwnProperty(layer.options.layerName)) {
+            var sf = searchfields[layer.options.layerName] //sf for search field
+            for (var i = 0; i < sf.length; i++) {
+                str += sf[i][1]
+                str += ' '
+            }
+        }
+        str = str.substring(0, str.length - 1)
+
+        var searchFieldTokens = str.split(' ')
+        var searchStr
+
+        if (searchFieldTokens.length == 2) {
+            if (
+                searchFieldTokens[0].toLowerCase() ==
+                layer.useKeyAsName.toLowerCase()
+            ) {
+                searchStr = keyAsName + ' ' + layer.feature.properties.Sol
+            } else {
+                searchStr = layer.feature.properties.Sol + ' ' + keyAsName
+            }
+        }
+
+        QueryURL.writeSearchURL([searchStr], layer.options.layerName)
+    }
+}
+
+//Pretty much like makePointLayer but without the pointToLayer stuff
+async function makeVectorLayer(
+    layerObj,
+    evenIfOff,
+    useEmptyGeoJSON,
+    forceGeoJSON
+) {
+    return new Promise((resolve, reject) => {
+        if (forceGeoJSON) add(forceGeoJSON)
+        else
+            captureVector(
+                layerObj,
+                { evenIfOff: evenIfOff, useEmptyGeoJSON: useEmptyGeoJSON },
+                add,
+                (f) => {
+                    Map_.map.on('moveend', f)
                     if (
-                        f.properties.properties &&
-                        typeof f.properties.properties === 'string'
-                    ) {
-                        f.properties = JSON.parse(f.properties.properties)
-                    }
-                    return f.properties[vtId]
+                        layerObj.time?.enabled === true &&
+                        layerObj.controlled !== true
+                    )
+                        L_.subscribeTimeChange(
+                            `dynamicextent_${layerObj.name}`,
+                            f
+                        )
+                    L_.subscribeOnSpecificLayerToggle(
+                        `dynamicextent_${layerObj.name}`,
+                        layerObj.name,
+                        f
+                    )
                 }
-            })(layerObj.style.vtId),
+            )
+
+        function add(data, allowInvalid) {
+            data = F_.parseIntoGeoJSON(data)
+
+            let invalidGeoJSONTrace = gjv.valid(data, true)
+            const allowableErrors = [`position must only contain numbers`]
+
+            invalidGeoJSONTrace = invalidGeoJSONTrace.filter((t) => {
+                if (typeof t !== 'string') return false
+                for (let i = 0; i < allowableErrors.length; i++) {
+                    if (t.toLowerCase().indexOf(allowableErrors[i]) != -1)
+                        return false
+                }
+                return true
+            })
+            if (
+                data == null ||
+                data === 'off' ||
+                (invalidGeoJSONTrace.length > 0 && allowInvalid !== true)
+            ) {
+                if (data != null && data != 'off') {
+                    data = null
+                    console.warn(
+                        `ERROR: ${layerObj.display_name} has invalid GeoJSON!`
+                    )
+                }
+                L_._layersLoaded[
+                    L_._layersOrdered.indexOf(layerObj.name)
+                ] = true
+                L_.layers.layer[layerObj.name] = data == null ? null : false
+                allLayersLoaded()
+                resolve()
+                return
+            }
+
+            layerObj.style = layerObj.style || {}
+            layerObj.style.layerName = layerObj.name
+
+            layerObj.style.opacity = L_.layers.opacity[layerObj.name]
+            //layerObj.style.fillOpacity = L_.layers.opacity[layerObj.name]
+
+            const vl = constructVectorLayer(
+                data,
+                layerObj,
+                onEachFeatureDefault,
+                Map_
+            )
+            L_.layers.attachments[layerObj.name] = vl.sublayers
+            L_.layers.layer[layerObj.name] = vl.layer
+
+            d3.selectAll('.' + F_.getSafeName(layerObj.name)).data(
+                data.features
+            )
+            L_._layersLoaded[L_._layersOrdered.indexOf(layerObj.name)] = true
+
+            allLayersLoaded()
+            resolve()
         }
+    })
+}
 
-        L_.layersGroup[layerObj.name] = L.vectorGrid
-            .protobuf(layerUrl, vectorTileOptions)
-            .on('click', function (e) {
-                let layerName = e.sourceTarget._layerName
-                let vtId = L_.layersGroup[layerName].vtId
-                clearHighlight()
-                L_.layersGroup[layerName].highlight = e.layer.properties[vtId]
+async function makeTileLayer(layerObj) {
+    let layerUrl = layerObj.url
+    if (!F_.isUrlAbsolute(layerUrl)) layerUrl = L_.missionPath + layerUrl
+    let bb = null
+    if (layerObj.hasOwnProperty('boundingBox')) {
+        bb = L.latLngBounds(
+            L.latLng(layerObj.boundingBox[3], layerObj.boundingBox[2]),
+            L.latLng(layerObj.boundingBox[1], layerObj.boundingBox[0])
+        )
+    }
+    layerUrl = await TimeControl.performTimeUrlReplacements(layerUrl, layerObj)
 
-                L_.layersGroup[layerName].setFeatureStyle(
-                    L_.layersGroup[layerName].highlight,
-                    {
-                        weight: 2,
-                        color: 'red',
-                        opacity: 1,
-                        fillColor: 'red',
-                        fill: true,
-                        radius: 4,
-                        fillOpacity: 1,
-                    }
-                )
-                L_.layersGroup[layerName].activeFeatures =
-                    L_.layersGroup[layerName].activeFeatures || []
-                L_.layersGroup[layerName].activeFeatures.push({
-                    type: 'Feature',
-                    properties: e.layer.properties,
-                    geometry: {},
-                })
+    let tileFormat = 'tms'
+    // For backward compatibility with the .tms option
+    if (typeof layerObj.tileformat === 'undefined') {
+        tileFormat = typeof layerObj.tms === 'undefined' ? true : layerObj.tms
+        tileFormat = tileFormat ? 'tms' : 'wmts'
+    } else tileFormat = layerObj.tileformat
 
-                Map_.activeLayer = e.sourceTarget._layer
-                if (Map_.activeLayer) L_.Map_._justSetActiveLayer = true
+    L_.layers.layer[layerObj.name] = L.tileLayer.colorFilter(layerUrl, {
+        minZoom: layerObj.minZoom,
+        maxZoom: layerObj.maxZoom,
+        maxNativeZoom: layerObj.maxNativeZoom,
+        tileFormat: tileFormat,
+        tms: tileFormat === 'tms',
+        //noWrap: true,
+        continuousWorld: true,
+        reuseTiles: true,
+        bounds: bb,
+        timeEnabled: layerObj.time != null && layerObj.time.enabled === true,
+        time: typeof layerObj.time === 'undefined' ? '' : layerObj.time.end,
+        compositeTile:
+            typeof layerObj.time === 'undefined'
+                ? false
+                : layerObj.time.compositeTile || false,
+        starttime:
+            typeof layerObj.time === 'undefined' ? '' : layerObj.time.start,
+        endtime: typeof layerObj.time === 'undefined' ? '' : layerObj.time.end,
+        customTimes:
+            typeof layerObj.time === 'undefined'
+                ? null
+                : layerObj.time.customTimes,
+        variables: layerObj.variables || {},
+    })
 
-                let p = e.sourceTarget._point
+    L_.setLayerOpacity(layerObj.name, L_.layers.opacity[layerObj.name])
 
+    L_._layersLoaded[L_._layersOrdered.indexOf(layerObj.name)] = true
+    allLayersLoaded()
+}
+
+function makeVectorTileLayer(layerObj) {
+    var layerUrl = layerObj.url
+    if (!F_.isUrlAbsolute(layerUrl)) layerUrl = L_.missionPath + layerUrl
+
+    let urlSplit = layerObj.url.split(':')
+
+    if (urlSplit[0].toLowerCase() === 'geodatasets' && urlSplit[1] != null) {
+        layerUrl =
+            `${window.mmgisglobal.ROOT_PATH || ''}/api/geodatasets/get?layer=${
+                urlSplit[1]
+            }` + '&type=mvt&x={x}&y={y}&z={z}'
+    }
+
+    var bb = null
+    if (layerObj.hasOwnProperty('boundingBox')) {
+        bb = L.latLngBounds(
+            L.latLng(layerObj.boundingBox[3], layerObj.boundingBox[2]),
+            L.latLng(layerObj.boundingBox[1], layerObj.boundingBox[0])
+        )
+    }
+
+    var clearHighlight = function () {
+        for (let l of Object.keys(L_.layers.data)) {
+            if (L_.layers.layer[l]) {
+                var highlight = L_.layers.layer[l].highlight
+                if (highlight) {
+                    L_.layers.layer[l].resetFeatureStyle(highlight)
+                }
+                L_.layers.layer[l].highlight = null
+            }
+        }
+    }
+    var timedSelectTimeout = null
+    var timedSelect = function (layer, layerName, e) {
+        clearTimeout(timedSelectTimeout)
+        timedSelectTimeout = setTimeout(
+            (function (layer, layerName, e) {
+                return function () {
+                    let ell = { latlng: null }
+                    if (e.latlng != null)
+                        ell.latlng = JSON.parse(JSON.stringify(e.latlng))
+
+                    Kinds.use(
+                        L_.layers.data[layerName].kind,
+                        Map_,
+                        L_.layers.layer[layerName].activeFeatures[0],
+                        layer,
+                        layerName,
+                        null,
+                        ell
+                    )
+
+                    ToolController_.getTool('InfoTool').use(
+                        layer,
+                        layerName,
+                        L_.layers.layer[layerName].activeFeatures,
+                        null,
+                        null,
+                        null,
+                        ell
+                    )
+                    L_.layers.layer[layerName].activeFeatures = []
+                }
+            })(layer, layerName, e),
+            100
+        )
+    }
+
+    var vectorTileOptions = {
+        layerName: layerObj.name,
+        rendererFactory: L.svg.tile,
+        vectorTileLayerStyles: layerObj.style.vtLayer || {},
+        interactive: true,
+        minZoom: layerObj.minZoom,
+        maxZoom: layerObj.maxZoom,
+        maxNativeZoom: layerObj.maxNativeZoom,
+        getFeatureId: (function (vtId) {
+            return function (f) {
+                if (
+                    f.properties.properties &&
+                    typeof f.properties.properties === 'string'
+                ) {
+                    f.properties = JSON.parse(f.properties.properties)
+                }
+                return f.properties[vtId]
+            }
+        })(layerObj.style.vtId),
+    }
+
+    L_.layers.layer[layerObj.name] = L.vectorGrid
+        .protobuf(layerUrl, vectorTileOptions)
+        .on('click', function (e, b, x) {
+            let layerName = e.target.options.layerName
+            let vtId = L_.layers.layer[layerName].vtId
+            clearHighlight()
+            L_.layers.layer[layerName].highlight = e.layer.properties[vtId]
+
+            L_.layers.layer[layerName].setFeatureStyle(
+                L_.layers.layer[layerName].highlight,
+                {
+                    weight: 2,
+                    color: 'red',
+                    opacity: 1,
+                    fillColor: 'red',
+                    fill: true,
+                    radius: 4,
+                    fillOpacity: 1,
+                }
+            )
+            L_.layers.layer[layerName].activeFeatures =
+                L_.layers.layer[layerName].activeFeatures || []
+            L_.layers.layer[layerName].activeFeatures.push({
+                type: 'Feature',
+                properties: e.layer.properties,
+                geometry: {},
+            })
+
+            Map_.activeLayer = e.layer
+            if (Map_.activeLayer) L_.Map_._justSetActiveLayer = true
+
+            let p = e.sourceTarget._point
+
+            if (p) {
                 for (var i in e.layer._renderer._features) {
                     if (
                         e.layer._renderer._features[i].feature._pxBounds.min
@@ -1012,7 +1077,7 @@ async function makeLayer(layerObj, evenIfOff, forceGeoJSON) {
                             vtId
                         ] != e.layer.properties[vtId]
                     ) {
-                        L_.layersGroup[layerName].activeFeatures.push({
+                        L_.layers.layer[layerName].activeFeatures.push({
                             type: 'Feature',
                             properties:
                                 e.layer._renderer._features[i].feature
@@ -1021,83 +1086,83 @@ async function makeLayer(layerObj, evenIfOff, forceGeoJSON) {
                         })
                     }
                 }
+            }
 
-                timedSelect(e.sourceTarget._layer, layerName, e)
+            timedSelect(e.layer, layerName, e)
 
-                L.DomEvent.stop(e)
-            })
-            .on(
-                'mouseover',
-                (function (vtKey) {
-                    return function (e, a, b, c) {
-                        if (vtKey != null)
-                            CursorInfo.update(
-                                vtKey + ': ' + e.layer.properties[vtKey],
-                                null,
-                                false
-                            )
-                    }
-                })(layerObj.style.vtKey)
-            )
-            .on('mouseout', function () {
-                CursorInfo.hide()
-            })
-
-        L_.layersGroup[layerObj.name].vtId = layerObj.style.vtId
-        L_.layersGroup[layerObj.name].vtKey = layerObj.style.vtKey
-
-        L_.setLayerOpacity(layerObj.name, L_.opacityArray[layerObj.name])
-
-        L_.layersLoaded[L_.layersOrdered.indexOf(layerObj.name)] = true
-        allLayersLoaded()
-    }
-
-    function makeModelLayer() {
-        L_.layersLoaded[L_.layersOrdered.indexOf(layerObj.name)] = true
-        allLayersLoaded()
-    }
-
-    function makeDataLayer() {
-        let layerUrl = layerObj.demtileurl
-        if (!F_.isUrlAbsolute(layerUrl)) layerUrl = L_.missionPath + layerUrl
-
-        let bb = null
-        if (layerObj.hasOwnProperty('boundingBox')) {
-            bb = L.latLngBounds(
-                L.latLng(layerObj.boundingBox[3], layerObj.boundingBox[2]),
-                L.latLng(layerObj.boundingBox[1], layerObj.boundingBox[0])
-            )
-        }
-
-        const shader = F_.getIn(layerObj, 'variables.shader') || {}
-        const shaderType = shader.type || 'image'
-
-        var uniforms = {}
-        for (let i = 0; i < DataShaders[shaderType].settings.length; i++) {
-            uniforms[DataShaders[shaderType].settings[i].parameter] =
-                DataShaders[shaderType].settings[i].value
-        }
-
-        L_.layersGroup[layerObj.name] = L.tileLayer.gl({
-            options: {
-                tms: true,
-                bounds: bb,
-            },
-            fragmentShader: DataShaders[shaderType].frag,
-            tileUrls: [layerUrl],
-            pixelPerfect: true,
-            uniforms: uniforms,
+            L.DomEvent.stop(e)
+        })
+        .on(
+            'mouseover',
+            (function (vtKey) {
+                return function (e, a, b, c) {
+                    if (vtKey != null)
+                        CursorInfo.update(
+                            vtKey + ': ' + e.layer.properties[vtKey],
+                            null,
+                            false
+                        )
+                }
+            })(layerObj.style.vtKey)
+        )
+        .on('mouseout', function () {
+            CursorInfo.hide()
         })
 
-        if (DataShaders[shaderType].attachImmediateEvents) {
-            DataShaders[shaderType].attachImmediateEvents(layerObj.name, shader)
-        }
+    L_.layers.layer[layerObj.name].vtId = layerObj.style.vtId
+    L_.layers.layer[layerObj.name].vtKey = layerObj.style.vtKey
 
-        L_.setLayerOpacity(layerObj.name, L_.opacityArray[layerObj.name])
+    L_.setLayerOpacity(layerObj.name, L_.layers.opacity[layerObj.name])
 
-        L_.layersLoaded[L_.layersOrdered.indexOf(layerObj.name)] = true
-        allLayersLoaded()
+    L_._layersLoaded[L_._layersOrdered.indexOf(layerObj.name)] = true
+    allLayersLoaded()
+}
+
+function makeModelLayer(layerObj) {
+    L_._layersLoaded[L_._layersOrdered.indexOf(layerObj.name)] = true
+    allLayersLoaded()
+}
+
+function makeDataLayer(layerObj) {
+    let layerUrl = layerObj.demtileurl
+    if (!F_.isUrlAbsolute(layerUrl)) layerUrl = L_.missionPath + layerUrl
+
+    let bb = null
+    if (layerObj.hasOwnProperty('boundingBox')) {
+        bb = L.latLngBounds(
+            L.latLng(layerObj.boundingBox[3], layerObj.boundingBox[2]),
+            L.latLng(layerObj.boundingBox[1], layerObj.boundingBox[0])
+        )
     }
+
+    const shader = F_.getIn(layerObj, 'variables.shader') || {}
+    const shaderType = shader.type || 'image'
+
+    var uniforms = {}
+    for (let i = 0; i < DataShaders[shaderType].settings.length; i++) {
+        uniforms[DataShaders[shaderType].settings[i].parameter] =
+            DataShaders[shaderType].settings[i].value
+    }
+
+    L_.layers.layer[layerObj.name] = L.tileLayer.gl({
+        options: {
+            tms: true,
+            bounds: bb,
+        },
+        fragmentShader: DataShaders[shaderType].frag,
+        tileUrls: [layerUrl],
+        pixelPerfect: true,
+        uniforms: uniforms,
+    })
+
+    if (DataShaders[shaderType].attachImmediateEvents) {
+        DataShaders[shaderType].attachImmediateEvents(layerObj.name, shader)
+    }
+
+    L_.setLayerOpacity(layerObj.name, L_.layers.opacity[layerObj.name])
+
+    L_._layersLoaded[L_._layersOrdered.indexOf(layerObj.name)] = true
+    allLayersLoaded()
 }
 
 //Because some layers load faster than others, check to see if
@@ -1105,8 +1170,8 @@ async function makeLayer(layerObj, evenIfOff, forceGeoJSON) {
 function allLayersLoaded() {
     if (!Map_.allLayersLoadedPassed) {
         //Only continues if all layers have been loaded
-        for (var i = 0; i < L_.layersLoaded.length; i++) {
-            if (L_.layersLoaded[i] == false) {
+        for (var i = 0; i < L_._layersLoaded.length; i++) {
+            if (L_._layersLoaded[i] == false) {
                 return
             }
         }
@@ -1118,100 +1183,29 @@ function allLayersLoaded() {
         L_.enforceVisibilityCutoffs()
 
         ToolController_.finalizeTools()
+
+        L_.loaded()
         //OTHER TEMPORARY TEST STUFF THINGS
-    }
-}
 
-function propertiesToImages(props, baseUrl) {
-    baseUrl = baseUrl || ''
-    var images = []
-    //Use "images" key first
-    if (props.hasOwnProperty('images')) {
-        for (var i = 0; i < props.images.length; i++) {
-            if (props.images[i].url) {
-                var url = baseUrl + props.images[i].url
-                if (!F_.isUrlAbsolute(url)) url = L_.missionPath + url
-                if (props.images[i].isModel) {
-                    images.push({
-                        url: url,
-                        texture: props.images[i].texture,
-                        name:
-                            (props.images[i].name ||
-                                props.images[i].url.match(/([^\/]*)\/*$/)[1]) +
-                            ' [Model]',
-                        type: 'model',
-                        isPanoramic: false,
-                        isModel: true,
-                        values: props.images[i].values || {},
-                        master: props.images[i].master,
-                    })
-                } else {
-                    if (props.images[i].isPanoramic) {
-                        images.push({
-                            ...props.images[i],
-                            url: url,
-                            name:
-                                (props.images[i].name ||
-                                    props.images[i].url.match(
-                                        /([^\/]*)\/*$/
-                                    )[1]) + ' [Panoramic]',
-                            type: 'photosphere',
-                            isPanoramic: true,
-                            isModel: false,
-                            values: props.images[i].values || {},
-                            master: props.images[i].master,
-                        })
-                    }
-                    images.push({
-                        url: url,
-                        name:
-                            props.images[i].name ||
-                            props.images[i].url.match(/([^\/]*)\/*$/)[1],
-                        type: props.images[i].type || 'image',
-                        isPanoramic: false,
-                        isModel: false,
-                        values: props.images[i].values || {},
-                        master: props.images[i].master,
-                    })
-                }
+        // Turn on legend if displayOnStart is true
+        if ('LegendTool' in ToolController_.toolModules) {
+            if (
+                ToolController_.toolModules['LegendTool'].displayOnStart == true
+            ) {
+                ToolController_.toolModules['LegendTool'].make(
+                    'toolContentSeparated_Legend'
+                )
+                ToolController_.activeSeparatedTools.push('LegendTool')
+                let _event = new CustomEvent('toggleSeparatedTool', {
+                    detail: {
+                        toggledToolName: 'LegendTool',
+                        visible: true,
+                    },
+                })
+                document.dispatchEvent(_event)
             }
         }
     }
-    //If there isn't one, search all string valued props for image urls
-    else {
-        for (var p in props) {
-            if (
-                typeof props[p] === 'string' &&
-                props[p].toLowerCase().match(/\.(jpeg|jpg|gif|png|xml)$/) !=
-                    null
-            ) {
-                var url = props[p]
-                if (!F_.isUrlAbsolute(url)) url = L_.missionPath + url
-                images.push({
-                    url: url,
-                    name: p,
-                    isPanoramic: false,
-                    isModel: false,
-                })
-            }
-            if (
-                typeof props[p] === 'string' &&
-                (props[p].toLowerCase().match(/\.(obj)$/) != null ||
-                    props[p].toLowerCase().match(/\.(dae)$/) != null)
-            ) {
-                var url = props[p]
-                if (!F_.isUrlAbsolute(url)) url = L_.missionPath + url
-                images.push({
-                    url: url,
-                    name: p,
-                    isPanoramic: false,
-                    isModel: true,
-                })
-            }
-        }
-    }
-
-    return images
 }
 
 function buildToolBar() {
@@ -1249,18 +1243,18 @@ function clearOnMapClick(event) {
 
         let found = false
         // For all MMGIS layers
-        for (let key in L_.layersGroup) {
-            if (L_.layersGroup[key] === false || L_.layersGroup[key] == null)
+        for (let key in L_.layers.layer) {
+            if (L_.layers.layer[key] === false || L_.layers.layer[key] == null)
                 continue
             let layers
 
             // Layers can be a LayerGroup or an array of LayerGroup
-            if ('getLayers' in L_.layersGroup[key]) {
-                layers = L_.layersGroup[key].getLayers()
+            if ('getLayers' in L_.layers.layer[key]) {
+                layers = L_.layers.layer[key].getLayers()
             }
 
-            if (Array.isArray(L_.layersGroup[key])) {
-                layers = L_.layersGroup[key]
+            if (Array.isArray(L_.layers.layer[key])) {
+                layers = L_.layers.layer[key]
             }
 
             for (let k in layers) {
@@ -1270,10 +1264,27 @@ function clearOnMapClick(event) {
                     const _layer = layer.getLayers()
                     for (let x in _layer) {
                         found = checkBounds(_layer[x])
-                        if (found) break
+                        // We should bubble down further for layers that have no fill, as it is possible
+                        // for there to be layers with features under the transparent fill
+                        if (found) {
+                            if (layer.options.fill) {
+                                break
+                            } else {
+                                found = false
+                            }
+                        }
                     }
                 } else {
                     found = checkBounds(layer)
+                    if (found) {
+                        // We should bubble down further for layers that have no fill, as it is possible
+                        // for there to be layers with features under the transparent fill
+                        if (layer.options.fill) {
+                            break
+                        } else {
+                            found = false
+                        }
+                    }
                 }
 
                 if (found) break
@@ -1286,7 +1297,10 @@ function clearOnMapClick(event) {
             }
 
             function checkBounds(layer) {
-                if (layer.feature.geometry.type.toLowerCase() === 'polygon') {
+                if (
+                    layer.feature &&
+                    layer.feature.geometry.type.toLowerCase() === 'polygon'
+                ) {
                     if (
                         L.leafletPip.pointInLayer(
                             [latlng.lng, latlng.lat],

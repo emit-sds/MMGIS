@@ -10,7 +10,7 @@ import calls from '../../../pre/calls'
 
 import metricsGraphics from '../../../external/MetricsGraphics/metricsgraphics.min'
 
-import ReactDOM from 'react-dom'
+import { render, unmountComponentAtNode } from 'react-dom'
 import React, { useState, useEffect, useRef } from 'react'
 
 import { Chart } from 'chart.js'
@@ -53,7 +53,10 @@ const Measure = () => {
     const refLine = useRef(null)
 
     useEffect(() => {
-        updateProfileData = setProfileData
+        updateProfileData = (d) => {
+            MeasureTool.uniformData = uniform(d)
+            setProfileData(d)
+        }
         triggerRefresh = () => {
             _refreshCounter += 1
             setRefresh(_refreshCounter)
@@ -64,15 +67,25 @@ const Measure = () => {
             .on('mousemove', MeasureTool.moveMap)
             .on('mouseout', MeasureTool.mouseOutMap)
 
-        const globeCont = Globe_.litho.getContainer()
-        globeCont.addEventListener(
-            'mousedown',
-            MeasureTool.mouseDownGlobe,
-            false
-        )
-        globeCont.addEventListener('mouseup', MeasureTool.clickGlobe, false)
-        globeCont.addEventListener('mousemove', MeasureTool.moveGlobe, false)
-        globeCont.addEventListener('mouseout', MeasureTool.mouseOutMap, false)
+        if (L_.hasGlobe) {
+            const globeCont = Globe_.litho.getContainer()
+            globeCont.addEventListener(
+                'mousedown',
+                MeasureTool.mouseDownGlobe,
+                false
+            )
+            globeCont.addEventListener('mouseup', MeasureTool.clickGlobe, false)
+            globeCont.addEventListener(
+                'mousemove',
+                MeasureTool.moveGlobe,
+                false
+            )
+            globeCont.addEventListener(
+                'mouseout',
+                MeasureTool.mouseOutMap,
+                false
+            )
+        }
 
         Viewer_.imageViewerMap.addHandler(
             'canvas-click',
@@ -251,7 +264,8 @@ const Measure = () => {
                 <Line
                     ref={refLine}
                     data={{
-                        labels: MeasureTool.lastData.map((d) => {
+                        labels: MeasureTool.uniformData.map((uD) => {
+                            const d = MeasureTool.lastData[uD.index]
                             const xAxes = parseInt(d[2], 10)
                             return distDisplayUnit === 'kilometers'
                                 ? (xAxes / 1000).toFixed(2)
@@ -260,19 +274,23 @@ const Measure = () => {
                         datasets: [
                             {
                                 label: 'Profile',
-                                data: profileData,
+                                data: MeasureTool.uniformData.map((d) => d.y),
                                 segment: {
                                     backgroundColor: (ctx) => {
                                         if (
                                             LOS.on &&
                                             MeasureTool.lineOfSight[
-                                                ctx.p1DataIndex
+                                                MeasureTool.uniformData[
+                                                    ctx.p1DataIndex
+                                                ].index
                                             ] === 0
                                         )
                                             return 'black'
                                         const i =
                                             MeasureTool.datasetMapping[
-                                                ctx.p0DataIndex
+                                                MeasureTool.uniformData[
+                                                    ctx.p0DataIndex
+                                                ].index
                                             ] - 1
                                         if (mode === 'continuous_color') {
                                             return MeasureTool.getColor(i, 0.4)
@@ -286,13 +304,17 @@ const Measure = () => {
                                         if (
                                             LOS.on &&
                                             MeasureTool.lineOfSight[
-                                                ctx.p1DataIndex
+                                                MeasureTool.uniformData[
+                                                    ctx.p1DataIndex
+                                                ].index
                                             ] === 0
                                         )
                                             alpha = 0.75
                                         const i =
                                             MeasureTool.datasetMapping[
-                                                ctx.p0DataIndex
+                                                MeasureTool.uniformData[
+                                                    ctx.p0DataIndex
+                                                ].index
                                             ] - 1
                                         if (mode === 'continuous_color')
                                             return MeasureTool.getColor(
@@ -305,7 +327,7 @@ const Measure = () => {
                                                 : `rgba(255, 0, 47, ${alpha})`
                                     },
                                 },
-                                spanGaps: true,
+                                spanGaps: false,
                                 borderWidth: 1,
                                 fill: 'start',
                                 pointRadius: 0,
@@ -354,6 +376,32 @@ const Measure = () => {
                             },
                         },
                         scales: {
+                            x: {
+                                type: 'linear',
+                                min: 0,
+                                max:
+                                    MeasureTool.lastData.length > 1
+                                        ? parseInt(
+                                              MeasureTool.lastData[
+                                                  MeasureTool.lastData.length -
+                                                      1
+                                              ][2]
+                                          ) *
+                                          (distDisplayUnit === 'kilometers'
+                                              ? 0.001
+                                              : 1)
+                                        : 1,
+                                ticks: {
+                                    autoSkip: false,
+                                    stepSize: getIdealXAxisStepSize(),
+                                    callback: function (value, index, values) {
+                                        if (distDisplayUnit === 'kilometers') {
+                                            return value.toFixed(2) + 'km'
+                                        }
+                                        return value + 'm'
+                                    },
+                                },
+                            },
                             y: {
                                 grid: {
                                     color: 'rgba(255,255,255,0.05)',
@@ -369,16 +417,30 @@ const Measure = () => {
                         onHover: (e, el) => {
                             let d
                             let visible = '--'
-                            if (refLine && e.x != null) {
+                            if (
+                                refLine &&
+                                e.x != null &&
+                                MeasureTool.uniformData.length > 2
+                            ) {
                                 const chartArea = refLine.current.chartArea
                                 const yScale = refLine.current.scales.y
-                                const bestIndex = Math.round(
-                                    F_.linearScale(
-                                        [chartArea.left, chartArea.right],
-                                        [0, profileData.length],
-                                        e.x
-                                    )
-                                )
+                                let bestIndex =
+                                    MeasureTool.uniformData[
+                                        Math.round(
+                                            F_.linearScale(
+                                                [
+                                                    chartArea.left,
+                                                    chartArea.right,
+                                                ],
+                                                [0, profileData.length],
+                                                e.x
+                                            )
+                                        )
+                                    ]
+                                if (bestIndex != null)
+                                    bestIndex = bestIndex.index
+                                else return
+
                                 $('#measureVerticalCursor').css({
                                     left: `${e.x}px`,
                                     height: `${chartArea.bottom}px`,
@@ -459,7 +521,11 @@ const Measure = () => {
                                     .css({ opacity: 1 })
 
                                 $('#measureInfoElev > div:last-child')
-                                    .text(`${d[4].toFixed(3)}m`)
+                                    .text(
+                                        d[4] != null
+                                            ? `${d[4].toFixed(3)}m`
+                                            : 'No Data'
+                                    )
                                     .css({ opacity: 1 })
 
                                 const text2d =
@@ -574,6 +640,7 @@ let MeasureTool = {
     data: [],
     lineOfSight: [],
     lastData: [],
+    uniformData: [],
     mapFocusMarker: null,
     dems: [],
     activeDemIdx: 0,
@@ -606,11 +673,32 @@ let MeasureTool = {
         MeasureTool.data = []
         MeasureTool.lastData = []
         MeasureTool.datasetMapping = []
+        MeasureTool.uniformData = []
         distDisplayUnit = 'meters'
         steps = 100
 
         //Get tool variables
-        this.vars = L_.getToolVars('measure')
+        this.vars = JSON.parse(JSON.stringify(L_.getToolVars('measure', true)))
+        this.vars.layerDems = this.vars.layerDems || {}
+
+        const standardLayerDems = {}
+        Object.keys(this.vars.layerDems).forEach((layerName) => {
+            standardLayerDems[L_.asLayerUUID(layerName)] = [
+                this.vars.layerDems[layerName],
+            ]
+        })
+        this.vars.layerDems = standardLayerDems
+
+        if (this.vars.__layers) {
+            Object.keys(this.vars.__layers).forEach((layerName) => {
+                const layer = this.vars.__layers[layerName]
+                if (layer.layerDems) {
+                    this.vars.layerDems[layerName] = (
+                        this.vars.layerDems[layerName] || []
+                    ).concat(layer.layerDems)
+                }
+            })
+        }
 
         if (
             this.vars.defaultMode &&
@@ -622,29 +710,39 @@ let MeasureTool = {
         this.dems = MeasureTool.getDems()
         this.activeDemIdx = 0
 
-        ReactDOM.render(<Measure />, document.getElementById('tools'))
+        render(<Measure />, document.getElementById('tools'))
     },
     destroy: function () {
-        ReactDOM.unmountComponentAtNode(document.getElementById('tools'))
+        unmountComponentAtNode(document.getElementById('tools'))
 
         Map_.map
             .off('click', MeasureTool.clickMap)
             .off('mousemove', MeasureTool.moveMap)
             .off('mouseout', MeasureTool.mouseOutMap)
 
-        const globeCont = Globe_.litho.getContainer()
-        globeCont.removeEventListener(
-            'mousedown',
-            MeasureTool.mouseDownGlobe,
-            false
-        )
-        globeCont.removeEventListener('mouseup', MeasureTool.clickGlobe, false)
-        globeCont.removeEventListener('mousemove', MeasureTool.moveGlobe, false)
-        globeCont.removeEventListener(
-            'mouseout',
-            MeasureTool.mouseOutMap,
-            false
-        )
+        if (L_.hasGlobe) {
+            const globeCont = Globe_.litho.getContainer()
+            globeCont.removeEventListener(
+                'mousedown',
+                MeasureTool.mouseDownGlobe,
+                false
+            )
+            globeCont.removeEventListener(
+                'mouseup',
+                MeasureTool.clickGlobe,
+                false
+            )
+            globeCont.removeEventListener(
+                'mousemove',
+                MeasureTool.moveGlobe,
+                false
+            )
+            globeCont.removeEventListener(
+                'mouseout',
+                MeasureTool.mouseOutMap,
+                false
+            )
+        }
 
         Viewer_.imageViewerMap.removeHandler(
             'canvas-click',
@@ -678,14 +776,27 @@ let MeasureTool = {
             dems.push({ name: 'Main', path: MeasureTool.vars.dem })
         if (MeasureTool.vars.layerDems)
             for (let name in MeasureTool.vars.layerDems) {
-                if (!onlyShowDemIfLayerOn || L_.toggledArray[name])
-                    dems.push({
-                        name: name,
-                        path: MeasureTool.vars.layerDems[name],
-                    })
+                MeasureTool.vars.layerDems[name].forEach((item) => {
+                    if (!onlyShowDemIfLayerOn || L_.layers.on[name]) {
+                        if (typeof item === 'string') {
+                            dems.push({
+                                name: L_.layers.data[name]?.display_name,
+                                path: item,
+                            })
+                        } else {
+                            dems.push({
+                                name:
+                                    item.name ||
+                                    L_.layers.data[name]?.display_name,
+                                path: item.url,
+                            })
+                        }
+                    }
+                })
             }
         if (dems.length === 0)
             dems.push({ name: 'Misconfigured', path: 'none' })
+
         return dems
     },
     clickMap: function (e) {
@@ -695,6 +806,7 @@ let MeasureTool = {
             updateProfileData(profileData)
             MeasureTool.data = []
             MeasureTool.lastData = []
+            MeasureTool.uniformData = []
             MeasureTool.datasetMapping = []
             MeasureTool.clearFocusPoint()
             Map_.rmNotNull(distLineToMouse)
@@ -863,8 +975,9 @@ let MeasureTool = {
         profileData = []
         MeasureTool.data = []
         MeasureTool.lastData = []
+        MeasureTool.uniformData = []
         MeasureTool.datasetMapping = []
-        distDisplayUnit = 'meters'
+        //distDisplayUnit = 'meters'
 
         Map_.rmNotNull(distLineToMouse)
         Map_.rmNotNull(distMousePoint)
@@ -989,6 +1102,80 @@ function recomputeLineOfSight() {
             )
         })
     }
+}
+
+// Takes non-linear x-axis profileData and makes it fit linearly. (Only for display purposes)
+function uniform(d) {
+    const linearProfileData = []
+
+    if (MeasureTool.lastData.length > 2 && d.length != 0) {
+        const totalDistance =
+            MeasureTool.lastData[MeasureTool.lastData.length - 1][2]
+        const steps = MeasureTool.lastData.length
+        const step = totalDistance / steps
+        let workingDistance = 0
+
+        let currentLastDataI = 1
+
+        for (let i = 0; i < steps; i++) {
+            while (
+                MeasureTool.lastData[currentLastDataI][2] < workingDistance
+            ) {
+                currentLastDataI++
+            }
+
+            linearProfileData.push({
+                y: yFromX(
+                    {
+                        x: MeasureTool.lastData[currentLastDataI - 1][2],
+                        y: MeasureTool.lastData[currentLastDataI - 1][4],
+                    },
+                    {
+                        x: MeasureTool.lastData[currentLastDataI][2],
+                        y: MeasureTool.lastData[currentLastDataI][4],
+                    },
+                    workingDistance
+                ),
+                index: currentLastDataI - 1,
+            })
+
+            workingDistance += step
+        }
+    }
+    return linearProfileData
+}
+function yFromX(point1, point2, x) {
+    const gradient = (point2.y - point1.y) / (point2.x - point1.x)
+    const intercept = point1.y - gradient * point1.x
+    return gradient * x + intercept
+}
+
+function getIdealXAxisStepSize() {
+    let stepSize = 0.1
+
+    if (MeasureTool.lastData.length >= 2) {
+        const totalDistance =
+            MeasureTool.lastData[MeasureTool.lastData.length - 1][2]
+
+        if (totalDistance > 1) stepSize = 0.2
+        if (totalDistance > 10) stepSize = 1
+        if (totalDistance > 50) stepSize = 2
+        if (totalDistance > 100) stepSize = 10
+        if (totalDistance > 500) stepSize = 20
+        if (totalDistance > 1000) stepSize = 100
+        if (totalDistance > 5000) stepSize = 200
+        if (totalDistance > 10000) stepSize = 1000
+        if (totalDistance > 50000) stepSize = 2000
+        if (totalDistance > 100000) stepSize = 10000
+        if (totalDistance > 500000) stepSize = 20000
+        if (totalDistance > 1000000) stepSize = 100000
+        if (totalDistance > 5000000) stepSize = 200000
+        if (totalDistance > 10000000) stepSize = 1000000
+        if (totalDistance > 50000000) stepSize = 2000000
+        if (totalDistance > 100000000) stepSize = 1000000
+        if (totalDistance > 500000000) stepSize = 2000000
+    }
+    return stepSize
 }
 
 function makeMeasureToolLayer() {
@@ -1284,11 +1471,10 @@ function makeProfile() {
                 }
                 //profileData = profileData.concat(data);
                 //var latestDistPerStep = latLongDistBetween(elevPoints[0].y, elevPoints[0].x, elevPoints[1].y, elevPoints[1].x) / steps;
-                var usedData = profileData
+                //var usedData = profileData
                 //if(profileMode == "slope") {
                 //  usedData = elevsToSlope
-                var multiplyElev = MeasureTool.vars.multiplyelev || 1
-
+                //var multiplyElev = MeasureTool.vars.multiplyelev || 1
                 updateProfileData(profileData)
 
                 Globe_.litho.removeLayer('_measurePoint')
@@ -1539,28 +1725,30 @@ function makeGlobePolyline(polylinePoints) {
             },
         })
     }
-
-    const globeBCR = Globe_.litho.getContainer()?.getBoundingClientRect() || {}
-    if (globeBCR.width > 0)
-        Globe_.litho.addLayer('clamped', {
-            name: '_measurePolyline',
-            id: '_measurePolyline',
-            on: true,
-            order: 10,
-            opacity: 1,
-            minZoom: 0,
-            maxZoom: 30,
-            style: {
-                default: {
-                    weight: 3,
-                    color: 'prop=color',
+    if (L_.hasGlobe) {
+        const globeBCR =
+            Globe_.litho.getContainer()?.getBoundingClientRect() || {}
+        if (globeBCR.width > 0)
+            Globe_.litho.addLayer('clamped', {
+                name: '_measurePolyline',
+                id: '_measurePolyline',
+                on: true,
+                order: 10,
+                opacity: 1,
+                minZoom: 0,
+                maxZoom: 30,
+                style: {
+                    default: {
+                        weight: 3,
+                        color: 'prop=color',
+                    },
                 },
-            },
-            geojson: {
-                type: 'FeatureCollection',
-                features: features,
-            },
-        })
+                geojson: {
+                    type: 'FeatureCollection',
+                    features: features,
+                },
+            })
+    }
 }
 
 MeasureTool.init()

@@ -30,6 +30,18 @@ const c = {
         url: 'api/utils/getprofile',
         pathprefix: '',
     },
+    ll2aerll: {
+        type: 'POST',
+        url: 'api/utils/ll2aerll',
+    },
+    chronice: {
+        type: 'POST',
+        url: 'api/utils/chronice',
+    },
+    proj42wkt: {
+        type: 'GET',
+        url: 'api/utils/proj42wkt',
+    },
     draw_add: {
         type: 'POST',
         url: 'API/draw/add',
@@ -115,7 +127,7 @@ const c = {
         url: 'API/datasets/get',
     },
     geodatasets_get: {
-        type: 'POST',
+        type: 'GET',
         url: 'API/geodatasets/get',
     },
     geodatasets_search: {
@@ -148,7 +160,11 @@ function api(call, data, success, error) {
 
     $.ajax({
         type: c[call].type,
-        url: c[call].url,
+        url: `${
+            window.mmgisglobal.ROOT_PATH
+                ? window.mmgisglobal.ROOT_PATH + '/'
+                : ''
+        }${c[call].url}`,
         data: data,
         xhrFields: {
             withCredentials: true,

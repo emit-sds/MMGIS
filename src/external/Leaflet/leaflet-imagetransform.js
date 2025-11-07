@@ -5,6 +5,7 @@
         factory(window.L)
     }
 })(function (L) {
+    const LImageTransformCache = {}
     L.ImageTransform = L.ImageOverlay.extend({
         initialize: function (url, anchors, options) {
             // (String, LatLngBounds, Object)
@@ -70,7 +71,14 @@
 
         _imgLoaded: false,
         _initImage: function () {
+            const cache = LImageTransformCache[this.options.id]
+
             this._image = L.DomUtil.create('div', 'leaflet-image-layer')
+
+            L.DomUtil.addClass(
+                this._image,
+                `image_overlays_${this.options.layerName}`
+            )
 
             if (this._map.options.zoomAnimation && L.Browser.any3d) {
                 L.DomUtil.addClass(this._image, 'leaflet-zoom-animated')
@@ -80,12 +88,26 @@
 
             this._imgNode = L.DomUtil.create('img')
             if (this.options.clip) {
-                this._canvas = L.DomUtil.create(
-                    'canvas',
-                    'leaflet-canvas-transform'
-                )
-                this._image.appendChild(this._canvas)
+                if (cache?.canvas) {
+                    this._cached = true
+                    this._canvas = this._cloneCanvas(cache.canvas)
+                    this._canvas.style['transform-origin'] = '0px 0px'
+                    this._imgNode = cache.imgNode
+                    this._imgNode.style[L.DomUtil.TRANSFORM_ORIGIN] = '0 0'
+                    this._image.appendChild(this._canvas)
+
+                    this._clipDone = false
+
+                    this._onImageLoad(false)
+                    return
+                } else {
+                    this._canvas = L.DomUtil.create(
+                        'canvas',
+                        'leaflet-canvas-transform'
+                    )
+                }
                 this._canvas.style[L.DomUtil.TRANSFORM_ORIGIN] = '0 0'
+                this._image.appendChild(this._canvas)
                 this._clipDone = false
             } else {
                 this._image.appendChild(this._imgNode)
@@ -107,14 +129,17 @@
                 onerror: L.bind(this._onImageError, this),
                 src: this._url,
             })
+            //}
         },
+
+        createImage: function () {},
 
         _onImageError: function () {
             this.fire('error')
         },
 
-        _onImageLoad: function () {
-            if (this.options.clip) {
+        _onImageLoad: function (e) {
+            if (e !== false && this.options.clip) {
                 this._canvas.width = this._imgNode.width
                 this._canvas.height = this._imgNode.height
             } else {
@@ -125,6 +150,19 @@
 
             this._reset()
             this.fire('load')
+
+            if (e !== false) {
+                // cache it
+                if (
+                    this.options.id != null &&
+                    LImageTransformCache[this.options.id] == null
+                ) {
+                    LImageTransformCache[this.options.id] = {
+                        canvas: this._cloneCanvas(this._drawCanvasCache()),
+                        imgNode: this._imgNode.cloneNode(),
+                    }
+                }
+            }
         },
 
         _reset: function () {
@@ -190,6 +228,7 @@
             imgNode.style[L.DomUtil.TRANSFORM] = this._getMatrix3dCSS(
                 this._matrix3d
             )
+
             if (this.options.clip) {
                 if (this._pixelClipPoints) {
                     this.options.clip = []
@@ -215,7 +254,33 @@
                 }
             }
         },
+        _getBase64Image: function (img) {
+            const canvas = document.createElement('canvas')
+            canvas.width = img.width
+            canvas.height = img.height
 
+            const ctx = canvas.getContext('2d')
+            ctx.drawImage(img, 0, 0)
+
+            return canvas.toDataURL('image/png')
+        },
+        _cloneCanvas: function (oldCanvas) {
+            if (oldCanvas == null) return null
+            //create a new canvas
+            const newCanvas = document.createElement('canvas')
+            newCanvas.classList.add('leaflet-canvas-transform')
+            newCanvas.style = oldCanvas.style
+            const context = newCanvas.getContext('2d')
+
+            //set dimensions
+            newCanvas.width = oldCanvas.width
+            newCanvas.height = oldCanvas.height
+
+            //apply the old canvas to the new one
+            context.drawImage(oldCanvas, 0, 0)
+            //return the new canvas
+            return newCanvas
+        },
         _getMatrix3dCSS: function (arr) {
             // get CSS atribute matrix3d
             var css = 'matrix3d('
@@ -270,6 +335,14 @@
                 }
                 this._clipDone = true
             }
+        },
+        _drawCanvasCache: function () {
+            const canvas = this._cloneCanvas(this._canvas)
+            const ctx = canvas.getContext('2d')
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height)
+            ctx.drawImage(this._imgNode, 0, 0)
+            return canvas
         },
     })
 

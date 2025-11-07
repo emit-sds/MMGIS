@@ -8,7 +8,13 @@ import Map_ from '../../Basics/Map_/Map_'
 import CursorInfo from '../../Ancillary/CursorInfo'
 import Modal from '../../Ancillary/Modal'
 
+import DrawTool_Templater from './DrawTool_Templater'
+
 import '../../../external/JQuery/jquery.autocomplete'
+import * as tokml from '@maphubs/tokml'
+import shpwrite from '@mapbox/shp-write'
+import { saveAs } from 'file-saver'
+
 import calls from '../../../pre/calls'
 
 var DrawTool = null
@@ -35,6 +41,7 @@ var Files = {
             'type'
         )
         const filesInGroupOrder = JSON.parse(JSON.stringify(DrawTool.files))
+
         if (groupingType != 'none') {
             filesInGroupOrder.sort((a, b) => {
                 if (
@@ -152,7 +159,7 @@ var Files = {
                 DrawTool.setDrawingType(drawType)
             } else {
                 CursorInfo.update(
-                    `Please select a file from the list below (by clicking on its name). If none exist, create one with the + above.`,
+                    `Please select a file from the list below (by clicking on its name). If none exist, make one with the create button below.`,
                     6000,
                     false,
                     {
@@ -184,8 +191,15 @@ var Files = {
         $('#drawToolDrawSortDiv > div').off('click')
         $('#drawToolDrawSortDiv > div').on('click', function (e) {
             $(this).toggleClass('active')
+            window._toolStates = window._toolStates || {}
+            window._toolStates.draw = window._toolStates.draw || {}
+            window._toolStates.draw.filter =
+                window._toolStates.draw.filter || {}
+            window._toolStates.draw.filter[$(this).attr('type')] =
+                $(this).hasClass('active')
             fileFilter()
         })
+
         $('#drawToolDrawFilter').off('keydown')
         $('#drawToolDrawFilter').on('keydown', function (e) {
             if (e.which === 13)
@@ -350,13 +364,21 @@ var Files = {
             )
                 ownedByUser = true
 
+            const isListEdit =
+                file.public == '1' &&
+                file.publicity_type == 'list_edit' &&
+                typeof file.public_editors?.includes === 'function' &&
+                (file.public_editors.includes(mmgisglobal.user) || ownedByUser)
+            const isAllEdit =
+                file.public == '1' && file.publicity_type == 'all_edit'
+
             // prettier-ignore
             var markup = [
                 "<div class='flexbetween' style='height: 30px; line-height: 30px;'>",
                     "<div class='drawToolFileSelector flexbetween' file_id='" + file.id + "' file_owner='" + file.file_owner + "' file_intent='" + file.intent + "'>",
                     "<div class='drawToolIntentColor' style='height: 100%; width: 7px; background: " + DrawTool.categoryStyles[file.intent].color + "'></div>",
                     "<div class='drawToolFileInfo'>",
-                        "<i title='Owned by you!' class='drawToolFileOwner mdi" + ( (ownedByUser) ? ((file.is_master) ? ' mdi-account-tie' : ' mdi-account') : '' ) + " mdi-18px " + ( (ownedByUser) ? 'alwaysShow' : '' )  + "' style='pointer-event: " + ( (ownedByUser) ? 'all' : 'none' ) + "' file_id='" + file.id + "'></i>",
+                        "<i title='Owned by you!' class='drawToolFileOwner mdi" + (file.is_master ? ' mdi-account-tie' : isAllEdit ? ' mdi-account-group' : isListEdit ? ' mdi-account-multiple' : (ownedByUser) ? ' mdi-account' : '' ) + " mdi-18px " + ( (file.is_master || ownedByUser || isAllEdit || isListEdit) ? 'alwaysShow' : '' )  + "' style='pointer-events: " + ( (ownedByUser) ? 'all' : 'none' ) + "' file_id='" + file.id + "'></i>",
                         `<div class='drawToolFileName' title='${file.file_name}\nIntent: ${file.intent}\nAuthor: ${file.file_owner}\nId: ${file.id}\nSelect to draw in,\nInfo button for information,\nCheck-box to toggle on,\nRight-Click for actions'>${file.file_name}</div>`,
                     "</div>",
                     "</div>",
@@ -393,22 +415,23 @@ var Files = {
             } else {
                 if (file._tagFolders[groupingType]) {
                     file._tagFolders[groupingType].forEach((g) => {
+                        const gEnc = encodeURIComponent(g)
+
                         const group = d3.select(
-                            `#drawToolDrawFilesList > .drawToolDrawFilesGroupElem[group_name="${g}"]`
+                            `#drawToolDrawFilesList > .drawToolDrawFilesGroupElem[group_name="${gEnc}"]`
                         )
 
                         let iconClass =
                             Files.getGroupingIcons(groupingType).closed
-
                         if (group.size() === 0) {
                             // prettier-ignore
                             d3.select('#drawToolDrawFilesList')
                             .append('div')
                             .attr('class', `drawToolDrawFilesGroupElem`)
-                            .attr('group_name', g)
+                            .attr('group_name', gEnc)
                             .html(
                                 [
-                                    `<div class='drawToolDrawFilesGroupElemHead' state='off' group_name='${g}' groupingtype='${groupingType}'>`,
+                                    `<div class='drawToolDrawFilesGroupElemHead' state='off' group_name='${gEnc}' groupingtype='${groupingType}'>`,
                                         `<div class='${g === 'unassigned' || g === 'untagged' ? 'drawToolDrawFilesGroupElemUn' : ''}'>`,
                                             `<div class='drawToolDrawFilesGroupElemChevron'><i class='mdi ${iconClass} mdi-18px'></i></div>`,
                                             `<div>${groupingType === 'alphabetical' ? g.substring(1) : g}</div>`,
@@ -421,11 +444,11 @@ var Files = {
                         }
                         if (
                             $(
-                                `.drawToolDrawFilesGroupElem[group_name=${g}] .drawToolDrawFilesGroupListElem > .drawToolDrawFilesListElem[file_id=${file.id}]`
+                                `.drawToolDrawFilesGroupElem[group_name="${gEnc}"] .drawToolDrawFilesGroupListElem > .drawToolDrawFilesListElem[file_id="${file.id}"]`
                             ).length === 0
                         ) {
                             d3.select(
-                                `.drawToolDrawFilesGroupElem[group_name=${g}] .drawToolDrawFilesGroupListElem`
+                                `.drawToolDrawFilesGroupElem[group_name="${gEnc}"] .drawToolDrawFilesGroupListElem`
                             )
                                 .append('li')
                                 .attr(
@@ -494,7 +517,9 @@ var Files = {
 
         if (Files.currentOpenFolderName != null)
             $(
-                `.drawToolDrawFilesGroupElemHead[group_name=${Files.currentOpenFolderName}]`
+                `.drawToolDrawFilesGroupElemHead[group_name="${decodeURIComponent(
+                    Files.currentOpenFolderName
+                )}"]`
             ).trigger('click')
 
         //Li Elem Context Menu
@@ -507,49 +532,79 @@ var Files = {
             e.preventDefault()
             let elm = $(this)
             const isPub = elm.attr('id') === 'drawToolDrawPublished'
-            const activeTagFolType = $(
+            let activeTagFolType = $(
                 '#drawToolDrawGroupingDiv > div.active'
             ).attr('type')
             const isHead = elm.hasClass('drawToolDrawFilesGroupElemHead')
-            const headGroup = elm.attr('group_name')
+            if (isHead) activeTagFolType = elm.attr('groupingtype')
+            const headGroup = decodeURIComponent(elm.attr('group_name'))
 
             const isLead = DrawTool.userGroups.indexOf('mmgis-group') != -1
+
             const leadIsEdit =
                 isLead && DrawTool.vars.leadsCanEditFileInfo === true
 
             if (
                 isHead &&
-                (!(
+                !(
                     activeTagFolType === 'tags' ||
                     activeTagFolType === 'folders'
-                ) ||
-                    !leadIsEdit)
+                ) &&
+                !leadIsEdit
             )
                 return
 
             hideContextMenu(true)
 
-            let rect = $(this).get(0).getBoundingClientRect()
+            const fileId = elm.attr('file_id')
+            const file = DrawTool.getFileObjectWithId(fileId)
 
+            const hasTemplate = file?.template?.template != null
+
+            let rect = $(this).get(0).getBoundingClientRect()
+            // Export GeoJSON
+            // Export GeoJSON [Forced Template]
+            const topStyle = rect.y + rect.height - 1
             // prettier-ignore
             let markup = [
-                    "<div id='drawToolDrawFilesListElemContextMenu' style='top: " +
-                        (rect.y + rect.height - 1) +
-                        'px; left: ' +
-                        40 +
-                        'px; width: ' +
-                        rect.width +
-                        "px; z-index: 2000; font-size: 14px;'>",
-                        '<ul>',
-                        (!isHead && L_.Coordinates.mainType != 'll') ? `<li id='cmExportGeoJSON' convert='true'><i class='mdi mdi-download mdi-14px'></i>Export GeoJSON (${L_.Coordinates.getMainTypeName()})</li>` : "",
-                        !isHead ? `<li id='cmExportSourceGeoJSON' convert='true'><i class='mdi mdi-download mdi-14px'></i>Export GeoJSON ${L_.Coordinates.mainType != 'll' ? '(lonlat)' : '' }</li>` : "",
-                            //"<li id='cmExportShp'>Export as .shp</li>",
-                            (!isHead && !isPub) ? `<li id='cmToggleLabels'><i class='mdi mdi-label-outline mdi-14px'></i>Toggle Labels</li>` : "",
-                            isHead ? `<li id='drawToolcmRenameTagFol'><i class='mdi mdi-rename-box mdi-14px'></i>Rename ${activeTagFolType === 'tags' ? "Tag" : "Folder"}</li>` : "",
-                            isHead ? `<li id='drawToolcmRemoveTagFol'><i class='mdi mdi-delete-forever mdi-14px'></i>Remove ${activeTagFolType === 'tags' ? "Tag" : "Folder"}</li>` : "",
-                        '</ul>',
-                    '</div>',
-                ].join('\n')
+                `<div id='drawToolDrawFilesListElemContextMenu' style='top: ${topStyle}px; left: 40px; width: ${rect.width}px; z-index: 2000; font-size: 14px; ${topStyle > window.innerHeight / 1.5 ? 'transform: translateY(calc(-100% - 29px));': ''}'>`,
+                    '<ul>',
+                        !isHead ? [
+                        `<li id="cmExport">`,
+                            `<div><i class='mdi mdi-download mdi-14px'></i><div>Export</div></div>`,
+                            '<div>',
+                                '<div>Format</div>',
+                                '<select id="cmExportFormat" class="dropdown">',
+                                    '<option value="geojson" selected>GeoJSON</option>',
+                                    '<option value="kml">KML</option>',
+                                    '<option value="shp">SHP</option>',
+                                '</select>',
+                            '</div>',
+                            L_.Coordinates.mainType != 'll' ? [
+                            '<div>',
+                                '<div>Coords</div>',
+                                '<select id="cmExportCoords" class="cmExportCoords dropdown">',
+                                    '<option value="source" selected>Source</option>',
+                                    `<option value="${L_.Coordinates.mainType}">Converted (${L_.Coordinates.mainType})</option>`,
+                                '</select>',
+                            '</div>'] .join('\n') : '',
+                            hasTemplate ? [
+                            '<div>',
+                                '<div>Force Template</div>',
+                                '<select class="cmExportTemplateForced dropdown">',
+                                    '<option value="false" selected>False</option>',
+                                    '<option value="true">True</option>',
+                                '</select>',
+                            '</div>'].join('\n') : '',
+                            '<div><div id="cmExportGo" class="mmgisButton5">Export</div></div>',
+                        `</li>`].join('\n') : '',
+                        // Other
+                        (!isHead && !isPub) ? `<li id='cmToggleLabels'><i class='mdi mdi-label-outline mdi-14px'></i>Toggle Labels</li>` : "",
+                        isHead ? `<li id='drawToolcmRenameTagFol'><i class='mdi mdi-rename-box mdi-14px'></i>Rename ${activeTagFolType === 'tags' ? "Tag" : "Folder"}</li>` : "",
+                        isHead ? `<li id='drawToolcmRemoveTagFol'><i class='mdi mdi-delete-forever mdi-14px'></i>Remove ${activeTagFolType === 'tags' ? "Tag" : "Folder"}</li>` : "",
+                    '</ul>',
+                '</div>',
+            ].join('\n')
 
             $('body').append(markup)
 
@@ -562,85 +617,132 @@ var Files = {
                     published: true,
                 }
             }
-            $('#cmExportGeoJSON, #cmExportSourceGeoJSON').on(
-                'click',
-                (function (body, isPub) {
-                    return function () {
-                        const convert = $(this).attr('convert')
-                        DrawTool.getFile(body, function (d) {
-                            let geojson = d.geojson
-                            let filename = ''
-                            if (isPub) {
-                                filename = 'CAMP_Latest_Map'
-                                geojson._metadata = d.file
-                            } else {
-                                filename =
-                                    d.file[0].file_name +
-                                    '_' +
-                                    d.file[0].id +
-                                    '_' +
-                                    d.file[0].file_owner
-                                geojson._metadata = [d.file[0]]
-                            }
 
-                            //Genericize it to a map/all type
-                            if (geojson._metadata[0].intent != 'all') {
-                                for (
-                                    var i = 0;
-                                    i < geojson.features.length;
-                                    i++
-                                ) {
-                                    var newIntent = null
-                                    var t =
-                                        geojson.features[
-                                            i
-                                        ].geometry.type.toLowerCase()
-                                    if (t == 'polygon' || t == 'multipolygon')
-                                        newIntent = 'polygon'
-                                    else if (
-                                        t == 'linestring' ||
-                                        t == 'multilinestring'
-                                    )
-                                        newIntent = 'line'
-                                    else newIntent = 'point'
-                                    geojson.features[i].properties._.intent =
-                                        newIntent
-                                }
-                                geojson._metadata[0].intent = 'all'
-                            }
+            $('#cmExportGo').on('click', () => {
+                let format = $('#cmExportFormat')
+                if (format) format = format.val() || 'geojson'
+                else format = 'geojson'
+                let coords = $('#cmExportCoords')
+                if (coords) coords = coords.val() || 'source'
+                else coords = 'source'
+                let templateForced = $('#cmExportTemplateForced')
+                if (templateForced)
+                    templateForced = templateForced.val() || 'false'
+                else templateForced = 'false'
 
-                            DrawTool.expandPointprops(geojson)
-                            if (convert == 'true')
-                                geojson =
-                                    L_.convertGeoJSONLngLatsToPrimaryCoordinates(
-                                        geojson
-                                    )
+                DrawTool.getFile(body, function (d) {
+                    let geojson = d.geojson
+                    let filename = ''
+                    if (isPub) {
+                        filename = 'CAMP_Latest_Map'
+                        geojson._metadata = d.file
+                    } else {
+                        filename =
+                            d.file[0].file_name +
+                            '_' +
+                            d.file[0].id +
+                            '_' +
+                            d.file[0].file_owner
+                        geojson._metadata = [d.file[0]]
+                    }
+
+                    //Genericize it to a map/all type
+                    if (geojson._metadata[0].intent != 'all') {
+                        for (var i = 0; i < geojson.features.length; i++) {
+                            var newIntent = null
+                            var t =
+                                geojson.features[i].geometry.type.toLowerCase()
+                            if (t == 'polygon' || t == 'multipolygon')
+                                newIntent = 'polygon'
+                            else if (
+                                t == 'linestring' ||
+                                t == 'multilinestring'
+                            )
+                                newIntent = 'line'
+                            else newIntent = 'point'
+                            geojson.features[i].properties._.intent = newIntent
+                        }
+                        geojson._metadata[0].intent = 'all'
+                    }
+
+                    DrawTool.expandPointprops(geojson)
+                    if (coords != 'source')
+                        geojson =
+                            L_.convertGeoJSONLngLatsToPrimaryCoordinates(
+                                geojson
+                            )
+                    if (templateForced === 'true')
+                        geojson = DrawTool.enforceTemplate(
+                            geojson,
+                            d?.file?.[0]?.template,
+                            templateForced
+                        )
+
+                    switch (format) {
+                        case 'geojson':
                             F_.downloadObject(geojson, filename, '.geojson')
-                        })
-                    }
-                })(body, isPub)
-            )
+                            break
+                        case 'kml':
+                            let kmlTimestampField = null
+                            if (d?.file?.[0]?.template?.template) {
+                                d.file[0].template.template.forEach((f) => {
+                                    if (f.type === 'date' && f.isEnd === true)
+                                        kmlTimestampField = f.field
+                                })
+                            }
 
-            $('#cmExportShp').on(
-                'click',
-                (function (body, isPub) {
-                    return function () {
-                        DrawTool.getFile(body, function (d) {
-                            let geojson = d.geojson
-                            ///geojson._metadata = d.file[0];
-                            shpwrite.download(geojson, {
-                                folder:
-                                    d.file[0].file_name +
-                                    '_' +
-                                    d.file[0].id +
-                                    '_' +
-                                    d.file[0].file_owner,
-                                types: {},
-                            })
-                        })
+                            const kml = tokml(
+                                F_.geoJSONForceSimpleStyleSpec(geojson, true),
+                                {
+                                    name: filename,
+                                    description: 'description',
+                                    timestamp: kmlTimestampField,
+                                    documentName: d.file[0].file_name,
+                                    documentDescription: 'Generated by MMGIS',
+                                    simplestyle: true,
+                                }
+                            )
+                            F_.downloadObject(kml, filename, '.kml', 'xml')
+                            break
+                        case 'shp':
+                            const folder =
+                                d.file[0].file_name +
+                                '_' +
+                                d.file[0].id +
+                                '_' +
+                                d.file[0].file_owner
+                            calls.api(
+                                'proj42wkt',
+                                {
+                                    proj4: window.mmgisglobal.customCRS
+                                        .projString,
+                                },
+                                (data) => {
+                                    shpwrite
+                                        .zip(geojson, {
+                                            outputType: 'blob',
+                                            prj: data,
+                                        })
+                                        .then((content) => {
+                                            saveAs(content, `${folder}.zip`)
+                                        })
+                                },
+                                function (err) {
+                                    CursorInfo.update(
+                                        `Failed to generate shapefile's .prj.`,
+                                        6000,
+                                        true,
+                                        { x: 305, y: 6 },
+                                        '#e9ff26',
+                                        'black'
+                                    )
+                                }
+                            )
+                            break
+                        default:
                     }
-                })(body, isPub)
-            )
+                })
+            })
 
             $('#drawToolDrawFilesListElemContextMenu #cmToggleLabels').on(
                 'click',
@@ -922,19 +1024,29 @@ var Files = {
                         "<div>",
                             `<div id="drawToolFileEditOnHeadingOwner">by ${file.file_owner}${ownedByUser ? ' (you)' : ''}</div>`,
                             "<select id='drawToolFileEditOnPublicityDropdown' class='ui dropdown dropdown_2 unsetMaxWidth'>",
-                                `<option value='public' ${file.public == '1' ? 'selected' : ''}>Public</option>`,
-                                `<option value='private' ${file.public != '1' ? 'selected' : ''}>Private</option>`,
+                                `<option value='private' ${file.public == '0' ? 'selected' : ''}>Private</option>`,
+                                `<option value='public read_only' ${file.public == '1' && file.publicity_type != 'list_edit' && file.publicity_type != 'all_edit' ? 'selected' : ''}>Public - Read-Only</option>`,
+                                `<option value='public list_edit' ${file.public == '1' && file.publicity_type == 'list_edit' ? 'selected' : ''}>Public - List-Editors</option>`,
+                                `<option value='public all_edit' ${file.public == '1' && file.publicity_type == 'all_edit' ? 'selected' : ''}>Public - All-Edit</option>`,
                             "</select>",
                         "</div>",
+                    "</div>",
+                    `<div class='drawToolFileEditListEditors' style='display: ${file.public == '1' && file.publicity_type == 'list_edit' ? 'flex' : 'none'}'>`,
+                        "<div>File Editors:</div>",
+                        `<input id='drawToolFileEditListEditors' type='text' placeholder='Comma-separated names of users who can edit this file...' value='${file.public_editors && typeof file.public_editors.join === 'function' ? file.public_editors.join(',') : ''}'></input>`,
                     "</div>",
                     "<div class='drawToolFileEditOnDates'>",
                         "<div>",
                             "<div>Created:</div>",
-                            `<div>${file.created_on.split('T')[0]}</div>`,
+                            `<div>${file.created_on.split('.')[0].replace('T', ' ')}</div>`,
                         "</div>",
                         "<div>",
-                            "<div>Last Modified:</div>",
-                            `<div>${file.updated_on.split('T')[0]}</div>`,
+                            "<div>Modified:</div>",
+                            `<div>${file.updated_on.split('.')[0].replace('T', ' ')}</div>`,
+                        "</div>",
+                        "<div class='drawToolFileTemplate' id='drawToolFileTemplateEdit'>",
+                            "<div>Template:</div>",
+                            `<div><div>${file.template?.name || 'NONE'}</div><i class='mdi mdi-pencil mdi-14px'></i></div>`,
                         "</div>",
                     "</div>",
                     "<div class='drawToolFileEditOnDescription'>",
@@ -973,6 +1085,8 @@ var Files = {
                 "</div>"
                 ].join('\n')
 
+            let template = file.template || null
+
             // prettier-ignore
             const modalContent = [
                 "<div class='drawToolFileEditOn' file_id='" + fileId + "' file_owner='" + file.file_owner + "' file_name='" + file.file_name + "'>",
@@ -993,8 +1107,12 @@ var Files = {
                             `<div>${file.created_on.split('T')[0]}</div>`,
                         "</div>",
                         "<div>",
-                            "<div>Last Modified:</div>",
+                            "<div>Modified:</div>",
                             `<div>${file.updated_on.split('T')[0]}</div>`,
+                        "</div>",
+                        "<div class='drawToolFileTemplate'>",
+                            "<div>Template:</div>",
+                            `<div><div>${template?.name || 'NONE'}</div></div>`,
                         "</div>",
                     "</div>",
                     "<div class='drawToolFileEditOnDescription'>",
@@ -1028,6 +1146,106 @@ var Files = {
                     ? modalContentEditable
                     : modalContent,
                 function () {
+                    //
+                    $('#drawToolFileTemplateEdit').on('click', () => {
+                        // prettier-ignore
+                        const templateEditMarkup = [
+                            `<div id='drawToolFileTemplateEditModal'>`,
+                                `<div id='drawToolFileTemplateEditModalTitle'>`,
+                                    `<div><i class='mdi mdi-form-select mdi-18px'></i><div>Template</div></div>`,
+                                    `<div id='drawToolFileTemplateEditModalClose'><i class='mmgisHoverBlue mdi mdi-close mdi-18px'></i></div>`,
+                                `</div>`,
+                                `<div id='drawToolFileTemplateContainer'>`,
+                                `</div>`,
+                                `<div id='drawToolFileTemplateEditModalActions'>`,
+                                    `<div id='drawToolFileTemplateEditModalActionsCancel' class='drawToolButton1'>Cancel</div>`,
+                                    `<div id='drawToolFileTemplateEditModalActionsDone' class='drawToolButton1'>Done</div>`,
+                                `</div>`,
+                            `</div>`
+                        ].join('\n')
+                        Modal.set(
+                            templateEditMarkup,
+                            function () {
+                                $(`#drawToolFileTemplateEditModalClose`).on(
+                                    'click',
+                                    function () {
+                                        Modal.remove(false, 1)
+                                    }
+                                )
+                                $(
+                                    `#drawToolFileTemplateEditModalActionsCancel`
+                                ).on('click', function () {
+                                    Modal.remove(false, 1)
+                                })
+                                DrawTool_Templater.renderDesignTemplate(
+                                    'drawToolFileTemplateContainer',
+                                    {
+                                        name: template?.name,
+                                        template: template?.template,
+                                    },
+                                    template?.name == null
+                                )
+                                $(
+                                    `#drawToolFileTemplateEditModalActionsDone`
+                                ).on('click', function () {
+                                    let allTemplates = {}
+                                    if (DrawTool.files) {
+                                        DrawTool.files.forEach((f) => {
+                                            if (
+                                                f.template != null &&
+                                                f.template.name != null &&
+                                                f.template.template != null
+                                            ) {
+                                                allTemplates[f.template.name] =
+                                                    f.template.template
+                                            }
+                                        })
+                                    }
+                                    allTemplates = {
+                                        ...allTemplates,
+                                        ...JSON.parse(
+                                            JSON.stringify(
+                                                DrawTool.vars.templates || {}
+                                            )
+                                        ),
+                                    }
+                                    const designedTemplate =
+                                        DrawTool_Templater.getDesignedTemplate(
+                                            'drawToolFileTemplateContainer',
+                                            allTemplates
+                                        )
+                                    if (designedTemplate === true) {
+                                        template = null
+                                        $(
+                                            `#drawToolFileTemplateEdit > div > div`
+                                        )
+                                            .text('NONE')
+                                            .css({
+                                                color: 'var(--color-green)',
+                                            })
+                                        // Do nothing and continue; user was not designing a new template
+                                    } else if (designedTemplate === false) {
+                                        // User was designing, but it had errors
+                                        return
+                                    } else {
+                                        template = JSON.parse(
+                                            JSON.stringify(designedTemplate)
+                                        )
+                                        $(
+                                            `#drawToolFileTemplateEdit > div > div`
+                                        )
+                                            .text(template.name)
+                                            .css({
+                                                color: 'var(--color-green)',
+                                            })
+                                    }
+                                    Modal.remove(false, 1)
+                                })
+                            },
+                            function () {},
+                            1
+                        )
+                    })
                     // Set up events
                     $('#drawToolFileEditOnTagsNew').autocomplete({
                         lookup: DrawTool.tags,
@@ -1059,11 +1277,15 @@ var Files = {
                         if (newTag.length === 0) return
 
                         // not alphanumeric
-                        if (newTag.match(/^[a-z0-9_]+$/i) == null) {
+                        if (
+                            newTag.indexOf(' ') > -1 ||
+                            newTag.indexOf('~') > -1 ||
+                            newTag.indexOf('$') > -1
+                        ) {
                             CursorInfo.update(
                                 `${
                                     type === 'tag' ? 'Tags' : 'Folders'
-                                } may only contain alphanumerics and underscores!`,
+                                } may not contain spaces, dollar-signs or tildes!`,
                                 3500,
                                 true,
                                 {
@@ -1115,7 +1337,8 @@ var Files = {
                         $('.drawToolFileEditOnTagClose').off('click')
                         $('.drawToolFileEditOnTagClose').on(
                             'click',
-                            function () {
+                            function (e) {
+                                e.stopPropagation()
                                 if (
                                     $(this).parent().parent().children()
                                         .length === 1
@@ -1142,7 +1365,17 @@ var Files = {
                         $('#drawToolFileEditOnTagsNew').val('')
                         existingTagFol[type].push(newTag)
                     }
-
+                    $('#drawToolFileEditOnPublicityDropdown').on(
+                        'change',
+                        function () {
+                            $('.drawToolFileEditListEditors').css({
+                                display:
+                                    $(this).val() === 'public list_edit'
+                                        ? 'flex'
+                                        : 'none',
+                            })
+                        }
+                    )
                     $('#drawToolFileEditOnTagsNewAdd').on('click', function () {
                         tagFolderAdd('tags')
                     })
@@ -1159,7 +1392,8 @@ var Files = {
                         }
                     )
 
-                    $('.drawToolFileEditOnTagClose').on('click', function () {
+                    $('.drawToolFileEditOnTagClose').on('click', function (e) {
+                        e.stopPropagation()
                         const removedTag = $(this).parent().attr('tag')
                         const removedType = $(this).parent().attr('type')
                         $(this).parent().remove()
@@ -1197,29 +1431,44 @@ var Files = {
                         if (!description.replace(/\s/g, '').length) {
                             description = ''
                         }
-
                         var body = {
                             id: fileid,
                             file_name: filename,
                             file_description:
                                 description +
                                 existingTagFol['efolders']
-                                    .map((t) => ' ^' + t)
+                                    .map((t) => ' ~^' + t)
                                     .join('') +
                                 existingTagFol['folders']
-                                    .map((t) => ' @' + t)
+                                    .map((t) => ' ~@' + t)
                                     .join('') +
                                 existingTagFol['tags']
-                                    .map((t) => ' #' + t)
+                                    .map((t) => ' ~#' + t)
                                     .join(''),
                             public:
                                 elm
                                     .find(
                                         '#drawToolFileEditOnPublicityDropdown'
                                     )
-                                    .val() == 'public'
+                                    .val()
+                                    .indexOf('public') != -1
                                     ? 1
                                     : 0,
+                            template: JSON.stringify(template),
+                            publicity_type: elm
+                                .find('#drawToolFileEditOnPublicityDropdown')
+                                .val()
+                                .includes('public')
+                                ? elm
+                                      .find(
+                                          '#drawToolFileEditOnPublicityDropdown'
+                                      )
+                                      .val()
+                                      .replace('public ', '')
+                                : null,
+                            public_editors: elm
+                                .find('#drawToolFileEditListEditors')
+                                .val(),
                         }
 
                         DrawTool.changeFile(
@@ -1311,15 +1560,15 @@ var Files = {
                                 return function (d) {
                                     //Remove each feature in its group
                                     if (
-                                        L_.layersGroup.hasOwnProperty(layerId)
+                                        L_.layers.layer.hasOwnProperty(layerId)
                                     ) {
                                         for (
                                             var i = 0;
-                                            i < L_.layersGroup[layerId].length;
+                                            i < L_.layers.layer[layerId].length;
                                             i++
                                         ) {
                                             Map_.rmNotNull(
-                                                L_.layersGroup[layerId][i]
+                                                L_.layers.layer[layerId][i]
                                             )
                                         }
                                         //And from the Globe
@@ -1353,12 +1602,13 @@ var Files = {
         //Highlight layer if on
         $('.drawToolDrawFilesListElem').off('mouseenter')
         $('.drawToolDrawFilesListElem').on('mouseenter', function () {
+            if (DrawTool.timeToggledOn) return
             $(this).find('.drawToolFileEdit').addClass('shown')
             var fileId = parseInt($(this).attr('file_id'))
-            var l = L_.layersGroup['DrawTool_' + fileId]
+            var l = L_.layers.layer['DrawTool_' + fileId]
             if (!l) return
             for (var i = 0; i < l.length; i++) {
-                if (l[i] != null) {
+                if (l[i] != null && l[i].temporallyHidden != true) {
                     if (typeof l[i].setStyle === 'function')
                         l[i].setStyle({ color: '#7fff00' })
                     else if (l[i].hasOwnProperty('_layers')) {
@@ -1377,9 +1627,11 @@ var Files = {
         })
         $('.drawToolDrawFilesListElem').off('mouseleave')
         $('.drawToolDrawFilesListElem').on('mouseleave', function () {
+            if (DrawTool.timeToggledOn) return
+
             $(this).find('.drawToolFileEdit').removeClass('shown')
             var fileId = parseInt($(this).attr('file_id'))
-            var l = L_.layersGroup['DrawTool_' + fileId]
+            var l = L_.layers.layer['DrawTool_' + fileId]
             if (!l) return
             for (var i = 0; i < l.length; i++) {
                 var style
@@ -1452,13 +1704,30 @@ var Files = {
             // Only select files you own
             const fileId = $(this).attr('file_id')
             var fileFromId = DrawTool.getFileObjectWithId(fileId)
+
             if (
-                mmgisglobal.user !== $(this).attr('file_owner') &&
+                mmgisglobal.user !== fileFromId.file_owner &&
                 fileFromId &&
                 F_.diff(fileFromId.file_owner_group, DrawTool.userGroups)
                     .length == 0
-            )
-                return
+            ) {
+                // Now check public list_edit
+                if (
+                    !(
+                        (fileFromId.public == '1' &&
+                            fileFromId.publicity_type == 'all_edit') ||
+                        (fileFromId.public == '1' &&
+                            fileFromId.publicity_type == 'list_edit' &&
+                            fileFromId.public_editors != null &&
+                            typeof fileFromId.public_editors.includes ===
+                                'function' &&
+                            fileFromId.public_editors.includes(
+                                mmgisglobal.user
+                            ))
+                    )
+                )
+                    return
+            }
 
             const wasOn = $(this).parent().parent().hasClass('checked')
 
@@ -1516,7 +1785,9 @@ var Files = {
         populateShapesAfter,
         selectedFeatureIds,
         asPublished,
-        cb
+        cb,
+        forceGeoJSON,
+        dontUpdateSourceGeoJSON
     ) {
         let parsedId =
             typeof parseInt(id) === 'number' && !Array.isArray(id)
@@ -1525,7 +1796,7 @@ var Files = {
         //Can't refresh what isn't there
         if (
             parsedId != 'master' &&
-            L_.layersGroup.hasOwnProperty('DrawTool_' + parsedId) == false
+            L_.layers.layer.hasOwnProperty('DrawTool_' + parsedId) == false
         )
             return
 
@@ -1535,207 +1806,214 @@ var Files = {
         }
         if (asPublished == true) body.published = true
 
-        DrawTool.getFile(
-            body,
-            (function (index, selectedFeatureIds) {
-                return function (data) {
-                    var layerId = 'DrawTool_' + index
-                    //Remove it first
-                    if (L_.layersGroup.hasOwnProperty(layerId)) {
-                        for (
-                            var i = 0;
-                            i < L_.layersGroup[layerId].length;
-                            i++
-                        ) {
-                            //Close any popups/labels
-                            var popupLayer = L_.layersGroup[layerId][i]
-                            DrawTool.removePopupsFromLayer(popupLayer)
-
-                            Map_.rmNotNull(L_.layersGroup[layerId][i])
-                            L_.layersGroup[layerId][i] = null
-                        }
-                        //And from the Globe
-                        Globe_.litho.removeLayer('camptool_' + layerId)
+        if (forceGeoJSON) {
+            keepGoing(
+                {
+                    geojson: forceGeoJSON,
+                },
+                parsedId,
+                selectedFeatureIds,
+                dontUpdateSourceGeoJSON
+            )
+        } else {
+            DrawTool.getFile(
+                body,
+                (function (index, selectedFeatureIds) {
+                    return function (data) {
+                        keepGoing(data, index, selectedFeatureIds)
                     }
+                })(parsedId, selectedFeatureIds)
+            )
+        }
 
-                    let features = data.geojson.features
-                    let coreFeatures = JSON.parse(JSON.stringify(data.geojson))
-                    coreFeatures.features = []
-
-                    for (var i = 0; i < features.length; i++) {
-                        if (!features[i].properties.hasOwnProperty('style')) {
-                            features[i].properties.style = F_.clone(
-                                DrawTool.defaultStyle
-                            )
-                            if (
-                                features[i].geometry.type.toLowerCase() ==
-                                'point'
-                            )
-                                features[i].properties.style.fillOpacity = 1
-                        }
-                        const style = features[i].properties.style
-
-                        if (features[i].properties.arrow === true) {
-                            const c = features[i].geometry.coordinates
-                            const start = new L.LatLng(c[0][1], c[0][0])
-                            const end = new L.LatLng(c[1][1], c[1][0])
-
-                            L_.addArrowToMap(
-                                layerId,
-                                start,
-                                end,
-                                features[i].properties.style,
-                                features[i]
-                            )
-                        } else if (features[i].properties.annotation === true) {
-                            L_.createAnnotation(
-                                features[i],
-                                'DrawToolAnnotation',
-                                layerId,
-                                id,
-                                features[i].properties._.id,
-                                true
-                            )
-
-                            DrawTool.refreshNoteEvents()
-                        } else if (features[i].geometry.type === 'Point') {
-                            L_.layersGroup[layerId].push(
-                                LayerGeologic.createSymbolMarker(
-                                    features[i].geometry.coordinates[1],
-                                    features[i].geometry.coordinates[0],
-                                    features[i].properties.style
-                                ).addTo(Map_.map)
-                            )
-                            L_.layersGroup[layerId][
-                                L_.layersGroup[layerId].length - 1
-                            ].feature = features[i]
-                        } else if (features[i].geometry.type === 'LineString') {
-                            L_.layersGroup[layerId].push(
-                                LayerGeologic.createLinework(
-                                    features[i],
-                                    style
-                                ).addTo(Map_.map)
-                            )
-                        } else {
-                            L_.layersGroup[layerId].push(
-                                L.geoJson(
-                                    {
-                                        type: 'FeatureCollection',
-                                        features: [features[i]],
-                                    },
-                                    {
-                                        // eslint-disable-next-line
-                                        style: function (feature) {
-                                            if (
-                                                feature.properties.style
-                                                    ?.geologic &&
-                                                typeof LayerGeologic.getUrl ===
-                                                    'function'
-                                            ) {
-                                                const style =
-                                                    feature.properties.style
-                                                const g = style.geologic
-
-                                                const fillImage =
-                                                    LayerGeologic.getFillPattern(
-                                                        LayerGeologic.getUrl(
-                                                            g.type,
-                                                            LayerGeologic.getTag(
-                                                                g.tag,
-                                                                g.color
-                                                            )
-                                                        ),
-                                                        g.size,
-                                                        g.fillColor
-                                                            ? g.fillColor[0] ===
-                                                              '#'
-                                                                ? F_.hexToRGBA(
-                                                                      g.fillColor,
-                                                                      g.fillOpacity ==
-                                                                          null
-                                                                          ? 1
-                                                                          : g.fillOpacity
-                                                                  )
-                                                                : g.fillColor ||
-                                                                  'none'
-                                                            : 'none',
-                                                        L_.Map_.map
-                                                    )
-
-                                                return {
-                                                    ...feature.properties.style,
-                                                    fillPattern: fillImage,
-                                                }
-                                            }
-                                            return feature.properties.style
-                                        },
-                                    }
-                                ).addTo(Map_.map)
-                            )
-                        }
-
-                        if (features[i].properties.arrow !== true) {
-                            var last = L_.layersGroup[layerId].length - 1
-                            var llast = L_.layersGroup[layerId][last]
-                            var layer
-
-                            if (llast.hasOwnProperty('_layers'))
-                                layer =
-                                    llast._layers[Object.keys(llast._layers)[0]]
-                            else {
-                                layer = Object.assign({}, llast)
-                            }
-                            coreFeatures.features.push(layer.feature)
-                        }
-                    }
-
-                    if (coreFeatures.features.length > 0) {
-                        // 3D doesn't support patterns yet so we'll reset their polygon fills to 0
-                        const coreFeaturesNormalized = []
-                        coreFeatures.features.forEach((f) => {
-                            const feat = JSON.parse(JSON.stringify(f))
-                            if (
-                                feat.properties?.style?.geologic?.type ===
-                                'pattern'
-                            )
-                                feat.properties.style.fillOpacity = 0
-                            coreFeaturesNormalized.push(feat)
-                        })
-                        Globe_.litho.addLayer('clamped', {
-                            name: 'camptool_' + layerId,
-                            on: true,
-                            geojson: F_.getBaseGeoJSON(coreFeaturesNormalized),
-                            opacity: 1,
-                            minZoom: 0,
-                            maxZoom: 30,
-                            style: {
-                                // Prefer feature[f].properties.style values
-                                letPropertiesStyleOverride: true,
-                            },
-                        })
-                    }
-
-                    if (populateShapesAfter)
-                        DrawTool.populateShapes(id, selectedFeatureIds)
-
-                    L_.enforceVisibilityCutoffs([layerId])
-                    DrawTool.maintainLayerOrder()
-
-                    DrawTool.refreshMasterCheckbox()
-
-                    //Keep labels on if they were on before
-                    let indexOf = DrawTool.labelsOn.indexOf(index + '')
-                    if (indexOf != -1) {
-                        DrawTool.labelsOn.splice(indexOf, 1)
-                        DrawTool.toggleLabels(index + '')
-                    }
-
-                    if (typeof cb === 'function') {
-                        cb()
-                    }
+        function keepGoing(
+            data,
+            index,
+            selectedFeatureIds,
+            dontUpdateSourceGeoJSON
+        ) {
+            var layerId = 'DrawTool_' + index
+            //Remove it first
+            if (L_.layers.layer.hasOwnProperty(layerId)) {
+                for (var i = 0; i < L_.layers.layer[layerId].length; i++) {
+                    //Close any popups/labels
+                    var popupLayer = L_.layers.layer[layerId][i]
+                    DrawTool.removePopupsFromLayer(popupLayer)
+                    Map_.rmNotNull(L_.layers.layer[layerId][i])
+                    L_.layers.layer[layerId][i] = null
                 }
-            })(parsedId, selectedFeatureIds)
-        )
+                //And from the Globe
+                Globe_.litho.removeLayer('camptool_' + layerId)
+            }
+
+            let features = data.geojson.features
+            if (dontUpdateSourceGeoJSON != true)
+                DrawTool.fileGeoJSONFeatures[index] = features
+
+            let coreFeatures = JSON.parse(JSON.stringify(data.geojson))
+            coreFeatures.features = []
+
+            for (var i = 0; i < features.length; i++) {
+                if (!features[i].properties.hasOwnProperty('style')) {
+                    features[i].properties.style = F_.clone(
+                        DrawTool.defaultStyle
+                    )
+                    if (features[i].geometry.type.toLowerCase() == 'point')
+                        features[i].properties.style.fillOpacity = 1
+                }
+                const style = features[i].properties.style
+
+                if (features[i].properties.arrow === true) {
+                    const c = features[i].geometry.coordinates
+                    const start = new L.LatLng(c[0][1], c[0][0])
+                    const end = new L.LatLng(c[1][1], c[1][0])
+
+                    L_.addArrowToMap(
+                        layerId,
+                        start,
+                        end,
+                        features[i].properties.style,
+                        features[i]
+                    )
+                } else if (features[i].properties.annotation === true) {
+                    L_.createAnnotation(
+                        features[i],
+                        'DrawToolAnnotation',
+                        layerId,
+                        id,
+                        features[i].properties._.id,
+                        true
+                    )
+
+                    DrawTool.refreshNoteEvents()
+                } else if (features[i].geometry.type === 'Point') {
+                    L_.layers.layer[layerId].push(
+                        LayerGeologic.createSymbolMarker(
+                            features[i].geometry.coordinates[1],
+                            features[i].geometry.coordinates[0],
+                            features[i].properties.style
+                        ).addTo(Map_.map)
+                    )
+                    L_.layers.layer[layerId][
+                        L_.layers.layer[layerId].length - 1
+                    ].feature = features[i]
+                } else if (features[i].geometry.type === 'LineString') {
+                    L_.layers.layer[layerId].push(
+                        LayerGeologic.createLinework(features[i], style).addTo(
+                            Map_.map
+                        )
+                    )
+                } else {
+                    L_.layers.layer[layerId].push(
+                        L.geoJson(
+                            {
+                                type: 'FeatureCollection',
+                                features: [features[i]],
+                            },
+                            {
+                                // eslint-disable-next-line
+                                style: function (feature) {
+                                    if (
+                                        feature.properties.style?.geologic &&
+                                        typeof LayerGeologic.getUrl ===
+                                            'function'
+                                    ) {
+                                        const style = feature.properties.style
+                                        const g = style.geologic
+
+                                        const fillImage =
+                                            LayerGeologic.getFillPattern(
+                                                LayerGeologic.getUrl(
+                                                    g.type,
+                                                    LayerGeologic.getTag(
+                                                        g.tag,
+                                                        g.color
+                                                    )
+                                                ),
+                                                g.size,
+                                                g.fillColor
+                                                    ? g.fillColor[0] === '#'
+                                                        ? F_.hexToRGBA(
+                                                              g.fillColor,
+                                                              g.fillOpacity ==
+                                                                  null
+                                                                  ? 1
+                                                                  : g.fillOpacity
+                                                          )
+                                                        : g.fillColor || 'none'
+                                                    : 'none',
+                                                L_.Map_.map
+                                            )
+
+                                        return {
+                                            ...feature.properties.style,
+                                            fillPattern: fillImage,
+                                        }
+                                    }
+                                    return feature.properties.style
+                                },
+                            }
+                        ).addTo(Map_.map)
+                    )
+                }
+
+                if (features[i].properties.arrow !== true) {
+                    var last = L_.layers.layer[layerId].length - 1
+                    var llast = L_.layers.layer[layerId][last]
+                    var layer
+
+                    if (llast.hasOwnProperty('_layers'))
+                        layer = llast._layers[Object.keys(llast._layers)[0]]
+                    else {
+                        layer = Object.assign({}, llast)
+                    }
+                    coreFeatures.features.push(layer.feature)
+                }
+            }
+
+            if (coreFeatures.features.length > 0) {
+                // 3D doesn't support patterns yet so we'll reset their polygon fills to 0
+                const coreFeaturesNormalized = []
+                coreFeatures.features.forEach((f) => {
+                    const feat = JSON.parse(JSON.stringify(f))
+                    if (feat.properties?.style?.geologic?.type === 'pattern')
+                        feat.properties.style.fillOpacity = 0
+                    coreFeaturesNormalized.push(feat)
+                })
+                Globe_.litho.addLayer('clamped', {
+                    name: 'camptool_' + layerId,
+                    on: true,
+                    geojson: F_.getBaseGeoJSON(coreFeaturesNormalized),
+                    opacity: 1,
+                    minZoom: 0,
+                    maxZoom: 30,
+                    style: {
+                        // Prefer feature[f].properties.style values
+                        letPropertiesStyleOverride: true,
+                    },
+                })
+            }
+
+            if (populateShapesAfter)
+                DrawTool.populateShapes(id, selectedFeatureIds)
+
+            L_.enforceVisibilityCutoffs([layerId])
+            DrawTool.maintainLayerOrder()
+            DrawTool.timeFilterDrawingLayer(index)
+
+            DrawTool.refreshMasterCheckbox()
+
+            //Keep labels on if they were on before
+            let indexOf = DrawTool.labelsOn.indexOf(index + '')
+            if (indexOf != -1) {
+                DrawTool.labelsOn.splice(indexOf, 1)
+                DrawTool.toggleLabels(index + '')
+            }
+
+            if (typeof cb === 'function') {
+                cb()
+            }
+        }
     },
     /**
      * Adds or removes a file
@@ -1747,7 +2025,9 @@ var Files = {
         fileId,
         forceToggle,
         populateShapesAfter,
-        asPublished
+        asPublished,
+        forcePopulateShapes,
+        cb
     ) {
         var argumented = typeof fileId === 'number' || fileId === 'master'
 
@@ -1761,8 +2041,9 @@ var Files = {
             (forceToggle != 'on' && DrawTool.filesOn.indexOf(id) != -1)
         ) {
             //OFF
-            // Don't allow turning files off that are being drawn in
-            if (DrawTool.currentFileId == id) return
+            if (DrawTool.currentFileId == id) {
+                $(`.drawToolFileSelector[file_id=${id}]`).click()
+            }
 
             DrawTool.filesOn = DrawTool.filesOn.filter(function (v) {
                 return v !== id
@@ -1779,15 +2060,20 @@ var Files = {
                     .removeClass('on')
             }
             //Remove each feature in its group
-            if (L_.layersGroup.hasOwnProperty(layerId)) {
-                for (var i = 0; i < L_.layersGroup[layerId].length; i++) {
-                    Map_.rmNotNull(L_.layersGroup[layerId][i])
+            if (L_.layers.layer.hasOwnProperty(layerId)) {
+                for (var i = 0; i < L_.layers.layer[layerId].length; i++) {
+                    Map_.rmNotNull(L_.layers.layer[layerId][i])
                 }
                 //And from the Globe
                 Globe_.litho.removeLayer('camptool_' + layerId)
             }
 
             DrawTool.refreshMasterCheckbox()
+
+            if (forcePopulateShapes) {
+                $(`.drawToolContextMenuHeaderClose[file_id=${id}]`).click()
+                DrawTool.populateShapes()
+            }
         } else {
             //ON
             DrawTool.filesOn.push(id)
@@ -1802,18 +2088,20 @@ var Files = {
                     .addClass('on')
             }
             //Get the file if we don't already have it
-            L_.layersGroup[layerId] = []
+            L_.layers.layer[layerId] = []
             DrawTool.refreshFile(
                 id == 'master' ? DrawTool.masterFileIds : id,
                 null,
                 populateShapesAfter != null ? populateShapesAfter : !argumented,
                 null,
-                asPublished
+                asPublished,
+                cb
             )
         }
+        DrawTool.lastToggledFileId = id
     },
     toggleLabels: function (file_id) {
-        var l = L_.layersGroup['DrawTool_' + file_id]
+        var l = L_.layers.layer['DrawTool_' + file_id]
         let indexOf = DrawTool.labelsOn.indexOf(file_id)
         var isOn = indexOf != -1
         if (isOn) DrawTool.labelsOn.splice(indexOf, 1)
@@ -1840,7 +2128,7 @@ var Files = {
             for (var j = 0; j < DrawTool.filesOn.length; j++) {
                 var file = DrawTool.getFileObjectWithId(DrawTool.filesOn[j])
                 if (file && file.intent === DrawTool.intentOrder[i]) {
-                    for (var e of L_.layersGroup[
+                    for (var e of L_.layers.layer[
                         'DrawTool_' + DrawTool.filesOn[j]
                     ])
                         if (e != null && typeof e.bringToFront === 'function')
@@ -1897,7 +2185,7 @@ var Files = {
         $('.drawToolAnnotation').on('click', function () {
             var layer = 'DrawTool_' + $(this).attr('layer')
             var index = $(this).attr('index')
-            var shape = L_.layersGroup[layer][index]
+            var shape = L_.layers.layer[layer][index]
             if (!mmgisglobal.shiftDown) {
                 if (typeof shape.getBounds === 'function')
                     Map_.map.fitBounds(shape.getBounds())

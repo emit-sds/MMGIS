@@ -7,11 +7,15 @@ import Map_ from '../../Basics/Map_/Map_'
 
 import DataShaders from '../../Ancillary/DataShaders'
 import LayerInfoModal from './LayerInfoModal/LayerInfoModal'
-import Filtering from './Filtering/Filtering'
+import Filtering from '../../Basics/Layers_/Filtering/Filtering'
 import Help from '../../Ancillary/Help'
+import CursorInfo from '../../Ancillary/CursorInfo'
 
 import tippy from 'tippy.js'
 import 'markjs'
+import calls from '../../../pre/calls'
+import * as tokml from '@maphubs/tokml'
+import shpwrite from '@mapbox/shp-write'
 
 import './LayersTool.css'
 
@@ -64,6 +68,7 @@ var LayersTool = {
     vars: {},
     MMGISInterface: null,
     orderingHistory: [],
+    _maxDepth: 0,
     initialize: function () {
         //Get tool variables
         this.vars = L_.getToolVars('layers')
@@ -114,40 +119,86 @@ var LayersTool = {
     toggleHeader: function (elmIndex) {
         var found = false
         var done = false
-        var elmDepth = 0
-        var wasOn = false
+        var elmDepth = [0]
+        var wasOn = [false]
+        var currentHeaderIdx = 0
+
         $('#layersToolList > li').each(function () {
             if (done) return
             var t = $(this)
             if (t.attr('id') == elmIndex) {
                 found = true
-                elmDepth = t.attr('depth')
-                wasOn = t.attr('childrenon') == 'true'
-                t.attr('childrenon', wasOn ? 'false' : 'true')
+                elmDepth = [t.attr('depth')]
+                wasOn = [t.attr('childrenon') == 'true']
+                currentHeaderIdx = 0
+                t.attr('childrenon', wasOn[currentHeaderIdx] ? 'false' : 'true')
                 t.find('.headerChevron').toggleClass('mdi-chevron-right')
                 t.find('.headerChevron').toggleClass('mdi-chevron-down')
             } else if (found) {
-                if (t.attr('type') == 'header' && t.attr('depth') <= elmDepth) {
-                    done = true
-                } else if (t.attr('depth') <= elmDepth) {
-                    done = true
-                } else {
-                    const nextDepth =
-                        parseInt(t.attr('depth')) > parseInt(elmDepth)
+                if (t.attr('depth') <= elmDepth[currentHeaderIdx]) {
+                    if (currentHeaderIdx <= 0) done = true
+                    else {
+                        while (t.attr('depth') <= elmDepth[currentHeaderIdx]) {
+                            elmDepth.pop()
+                            wasOn.pop()
+                            currentHeaderIdx--
 
-                    if (wasOn) {
+                            if (currentHeaderIdx < 0) {
+                                done = true
+                                break
+                            }
+                        }
+                    }
+                }
+                if (!done) {
+                    const nextDepth =
+                        parseInt(t.attr('depth')) >
+                        parseInt(elmDepth[currentHeaderIdx])
+
+                    // Hide if collapsing whole group or not every header up to the point was false
+                    if (
+                        currentHeaderIdx === 0
+                            ? wasOn[0] === true
+                            : !wasOn.every((w) => w === false)
+                    ) {
+                        // hide
                         if (nextDepth) t.attr('on', 'false')
                         t.css('overflow', 'hidden')
-                        t.css('height', wasOn ? '0' : 'auto')
-                        t.css('margin-top', wasOn ? '0px' : '1px')
-                        t.css('margin-bottom', wasOn ? '0px' : '1px')
+                        t.css('height', '0')
+                        t.css('margin-top', '0px')
+                        t.css('margin-bottom', '0px')
                     } else {
+                        // show
                         if (t.attr('on') == 'true' || nextDepth) {
                             t.css('height', 'auto')
                             t.css('margin-top', '1px')
                             t.css('margin-bottom', '1px')
                         }
                         if (nextDepth) t.attr('on', 'true')
+                    }
+
+                    if (t.attr('type') == 'header') {
+                        const childrenon = t.attr('childrenon') == 'true'
+
+                        // Only expand subheader if we're opening
+                        elmDepth.push(t.attr('depth'))
+                        wasOn.push(!childrenon)
+                        currentHeaderIdx++
+
+                        const chevron = t.find('.headerChevron')
+                        if (childrenon) {
+                            // arrow down
+                            if (chevron.hasClass('mdi-chevron-right'))
+                                chevron.removeClass('mdi-chevron-right')
+                            if (!chevron.hasClass('mdi-chevron-down'))
+                                chevron.addClass('mdi-chevron-down')
+                        } else {
+                            // arrow right
+                            if (chevron.hasClass('mdi-chevron-down'))
+                                chevron.removeClass('mdi-chevron-down')
+                            if (!chevron.hasClass('mdi-chevron-right'))
+                                chevron.addClass('mdi-chevron-right')
+                        }
                     }
                 }
             }
@@ -174,17 +225,19 @@ function interfaceWithMMGIS(fromInit) {
 
     let headerI = 0
 
+    LayersTool._maxDepth = 0
+
     //This is where the layers list is created in the tool panel.
-    depthTraversal(L_.layers, {}, 0)
+    depthTraversal(L_.configData.layers, {}, 0)
 
     function depthTraversal(node, parent, depth) {
+        LayersTool._maxDepth = Math.max(LayersTool._maxDepth, depth)
         for (var i = 0; i < node.length; i++) {
             let currentOpacity
             let currentBrightness
             let currentContrast
             let currentSaturation
             let currentBlend
-
             //Build layerExport
             var layerExport
             switch (node[i].type) {
@@ -192,6 +245,7 @@ function interfaceWithMMGIS(fromInit) {
                 case 'query':
                     // prettier-ignore
                     layerExport = [
+                        /*
                         '<ul>',
                             L_.Coordinates.mainType != 'll' ? ['<li>',
                                 '<div class="layersToolExportGeoJSON">',
@@ -203,8 +257,68 @@ function interfaceWithMMGIS(fromInit) {
                                     `<div>Export GeoJSON ${L_.Coordinates.mainType != 'll' ? '(lonlat)' : '' }</div>`,
                                 '</div>',
                             '</li>',
+                            L_.Coordinates.mainType != 'll' ? ['<li>',
+                                '<div class="layersToolExportKML">',
+                                    `<div>Export KML (${L_.Coordinates.getMainTypeName()})</div>`,
+                                '</div>',
+                            '</li>'].join('\n') : '',
+                            '<li>',
+                                '<div class="layersToolExportSourceKML">',
+                                    `<div>Export KML ${L_.Coordinates.mainType != 'll' ? '(lonlat)' : '' }</div>`,
+                                '</div>',
+                            '</li>',
+                        '</ul>',
+                        */
+                        '<ul>',
+                            `<li class="layersToolExport">`,
+                                `<div><i class='mdi mdi-download mdi-14px'></i><div>Export</div></div>`,
+                                '<div>',
+                                    '<div>Format</div>',
+                                    '<select class="layersToolExportFormat dropdown">',
+                                        '<option value="geojson" selected>GeoJSON</option>',
+                                        '<option value="kml">KML</option>',
+                                        '<option value="shp">SHP</option>',
+                                    '</select>',
+                                '</div>',
+                                node[i]?.variables?.dynamicExtent === true ? ['<div>',
+                                    '<div>Extent</div>',
+                                    '<select class="layersToolExportExtent dropdown">',
+                                        '<option value="local" selected>Current Window Extent</option>',
+                                        '<option value="raw">Entire File</option>',
+                                    '</select>',
+                                '</div>',].join('\n') : '',
+                                L_.Coordinates.mainType != 'll' ? [
+                                '<div>',
+                                    '<div>Coords</div>',
+                                    '<select class="layersToolExportCoords dropdown">',
+                                        '<option value="source" selected>Source Coordinates</option>',
+                                        `<option value="${L_.Coordinates.mainType}">Converted (${L_.Coordinates.mainType})</option>`,
+                                    '</select>',
+                                '</div>'] .join('\n') : '',
+                                '<div><div class="layersToolExportGo mmgisButton5">Export</div></div>',
+                            `</li>`,
                         '</ul>',
                     ].join('\n')
+                    break
+                case 'data':
+                case 'tile':
+                    layerExport = ''
+                    // Add download URL for raster layers
+                    if (node[i].hasOwnProperty('variables')) {
+                        if (node[i].variables.hasOwnProperty('downloadURL')) {
+                            layerExport = [
+                                '<ul>',
+                                '<li>',
+                                '<div class="layersToolExportSourceGeoJSON">',
+                                `<div><a href="` +
+                                    node[i].variables.downloadURL +
+                                    `" target="_blank">Download Data</a></div>`,
+                                '</div>',
+                                '</li>',
+                                '</ul>',
+                            ].join('\n')
+                        }
+                    }
                     break
                 default:
                     layerExport = ''
@@ -214,28 +328,48 @@ function interfaceWithMMGIS(fromInit) {
             var timeDisplay = ''
             if (node[i].time != null) {
                 if (node[i].time.enabled == true) {
+                    // prettier-ignore
                     timeDisplay = [
                         '<ul>',
-                        '<li>',
-                        '<div>',
-                        '<div>Start Time</div>',
-                        '<label class="starttime ' +
-                            F_.getSafeName(node[i].name) +
-                            '">' +
-                            node[i].time.start +
-                            '</label>',
-                        '</div>',
-                        '</li>',
-                        '<li>',
-                        '<div>',
-                        '<div>End Time</div>',
-                        '<label class="endtime ' +
-                            F_.getSafeName(node[i].name) +
-                            '">' +
-                            node[i].time.end +
-                            '</label>',
-                        '</div>',
-                        '</li>',
+                            '<li class="layerTimeTitle">',
+                                '<div>Time</div>',
+                            '</li>',
+                            '<li>',
+                                '<div>',
+                                '<div>Start Time</div>',
+                                '<label class="starttime ' +
+                                    F_.getSafeName(node[i].name) +
+                                    '">' +
+                                    node[i].time.start +
+                                    '</label>',
+                                '</div>',
+                            '</li>',
+                            '<li>',
+                                '<div>',
+                                '<div>End Time</div>',
+                                '<label class="endtime ' +
+                                    F_.getSafeName(node[i].name) +
+                                    '">' +
+                                    node[i].time.end +
+                                    '</label>',
+                                '</div>',
+                            '</li>',
+                            (
+                                node[i].time.refreshIntervalEnabled === true
+                            ) ? 
+                            [
+                            '<li>',
+                                '<div>',
+                                '<div>Auto-Refreshes Every</div>',
+                                '<label class="autoRefreshInterval ' +
+                                    F_.getSafeName(node[i].name) +
+                                    '">' +
+                                    (node[i].time.refreshIntervalAmount || 60) +
+                                    ' Seconds</label>',
+                                '</div>',
+                            '</li>'
+                            ].join('\n')
+                            : null,
                         '</ul>',
                     ].join('\n')
                 }
@@ -251,14 +385,14 @@ function interfaceWithMMGIS(fromInit) {
                 case 'tile':
                     currentOpacity = L_.getLayerOpacity(node[i].name)
                     if (currentOpacity == null)
-                        currentOpacity = L_.opacityArray[node[i].name]
+                        currentOpacity = L_.layers.opacity[node[i].name]
 
                     currentBrightness = 1
                     currentContrast = 1
                     currentSaturation = 1
                     currentBlend = 'none'
-                    if (L_.layerFilters[node[i].name]) {
-                        let f = L_.layerFilters[node[i].name]
+                    if (L_.layers.filters[node[i].name]) {
+                        let f = L_.layers.filters[node[i].name]
 
                         currentBrightness =
                             f['brightness'] == null
@@ -284,7 +418,7 @@ function interfaceWithMMGIS(fromInit) {
                             '<li>',
                                 '<div>',
                                     '<div>Opacity</div>',
-                                    '<input class="transparencyslider slider2" layername="' + node[i].name + '" type="range" min="0" max="1" step="0.01" value="' + currentOpacity + '" default="' + L_.opacityArray[node[i].name] + '">',
+                                    '<input class="transparencyslider slider2" layername="' + node[i].name + '" type="range" min="0" max="1" step="0.01" value="' + currentOpacity + '" default="' + L_.layers.opacity[node[i].name] + '">',
                                 '</div>',
                             '</li>',
                             '<li>',
@@ -348,11 +482,11 @@ function interfaceWithMMGIS(fromInit) {
                 case 'data':
                     currentOpacity = L_.getLayerOpacity(node[i].name)
                     if (currentOpacity == null)
-                        currentOpacity = L_.opacityArray[node[i].name]
+                        currentOpacity = L_.layers.opacity[node[i].name]
 
                     currentBlend = 'none'
-                    if (L_.layerFilters[node[i].name]) {
-                        let f = L_.layerFilters[node[i].name]
+                    if (L_.layers.filters[node[i].name]) {
+                        let f = L_.layers.filters[node[i].name]
 
                         currentBlend =
                             f['mix-blend-mode'] == null
@@ -376,7 +510,7 @@ function interfaceWithMMGIS(fromInit) {
                             '<li>',
                                 '<div>',
                                     '<div>Opacity</div>',
-                                    '<input class="transparencyslider slider2" layername="' + node[i].name + '" type="range" min="0" max="1" step="0.01" value="' + currentOpacity + '" default="' + L_.opacityArray[node[i].name] + '">',
+                                    '<input class="transparencyslider slider2" layername="' + node[i].name + '" type="range" min="0" max="1" step="0.01" value="' + currentOpacity + '" default="' + L_.layers.opacity[node[i].name] + '">',
                                 '</div>',
                             '</li>',
                             '<li>',
@@ -401,7 +535,7 @@ function interfaceWithMMGIS(fromInit) {
                             '<li>',
                                 '<div>',
                                     '<div>Opacity</div>',
-                                    '<input class="transparencyslider slider2" layername="' + node[i].name + '" type="range" min="0" max="1" step="0.01" value="' + currentOpacity + '" default="' + L_.opacityArray[node[i].name] + '">',
+                                    '<input class="transparencyslider slider2" layername="' + node[i].name + '" type="range" min="0" max="1" step="0.01" value="' + currentOpacity + '" default="' + L_.layers.opacity[node[i].name] + '">',
                                 '</div>',
                             '</li>',
                         '</ul>',
@@ -425,8 +559,8 @@ function interfaceWithMMGIS(fromInit) {
                                     '<div>',
                                         '<i class="headerChevron mdi mdi-chevron-down mdi-24px"></i>',
                                     '</div>',
-                                    `<div class="layerName" title="${node[i].name}">`,
-                                        node[i].name,
+                                    `<div class="layerName" title="${node[i].display_name}">`,
+                                        node[i].display_name,
                                     '</div>',
                                     '<div class="layerCount">',
                                         (node[i].sublayers ? node[i].sublayers.length : '0'),
@@ -446,25 +580,24 @@ function interfaceWithMMGIS(fromInit) {
                     // prettier-ignore
                     $('#layersToolList').append(
                         [
-                            '<li id="LayersTool' + F_.getSafeName(node[i].name) + '" class="' + ((!quasiLayers.includes(node[i].type) && L_.layersGroup[node[i].name] == null) ? 'layernotfound' : '') + '" type="' + node[i].type + '" on="true" depth="' + depth + '" name="' + node[i].name + '" parent="' + parent.name + '"  style="margin-bottom: 1px;">',
+                            '<li id="LayersTool' + F_.getSafeName(node[i].name) + '" class="' + ((!quasiLayers.includes(node[i].type) && L_.layers.layer[node[i].name] == null) ? 'layernotfound' : '') + '" type="' + node[i].type + '" on="true" depth="' + depth + '" name="' + node[i].name + '" parent="' + parent.name + '"  style="margin-bottom: 1px;">',
                                 `<div class="title" id="layerstart${F_.getSafeName(node[i].name)}" style="border-left: ${depth * DEPTH_SIZE}px solid ${INDENT_COLOR};">`,
                                     '<div class="layersToolColor ' + node[i].type + '">',
                                         '<i class="mdi mdi-drag-vertical mdi-12px"></i>',
                                     '</div>',
                                     '<div class="checkboxcont">',
-                                        '<div class="checkbox ' + (L_.toggledArray[node[i].name] ? 'on' : 'off') + '"></div>',
+                                        '<div class="checkbox ' + (L_.layers.on[node[i].name] ? 'on' : 'off') + '"></div>',
                                     '</div>',
-                                    `<div class="layerName" title="${node[i].name}">`,
-                                        node[i].name,
+                                    `<div class="layerName" title="${node[i].display_name}">`,
+                                        node[i].display_name,
                                     '</div>',
-                                    '<div class="reset">',
+                                    node[i].type === 'vector' ?
+                                    ['<div class="reload" title="Reload Layer">',
                                         '<i class="mdi mdi-refresh mdi-18px"></i>',
-                                    '</div>',
+                                    '</div>'].join('\n')
+                                    : null,
                                     (layerExport != '') ? ['<div title="Download" class="layerDownload" id="layerexport' + F_.getSafeName(node[i].name) + '" stype="' + node[i].type + '" layername="' + node[i].name + '">',
                                         '<i class="mdi mdi-download mdi-18px" name="layerexport"></i>',
-                                    '</div>'].join('\n') : '',
-                                    (timeDisplay != '') ? ['<div class="time" id="timesettings' + F_.getSafeName(node[i].name) + '" stype="' + node[i].type + '" layername="' + node[i].name + '">',
-                                        '<i class="mdi mdi-clock mdi-18px" name="timesettings" style="color:' + node[i].time.status + '"></i>',
                                     '</div>'].join('\n') : '',
                                     '<div title="Settings" class="gears" id="layersettings' + F_.getSafeName(node[i].name) + '" stype="' + node[i].type + '" layername="' + node[i].name + '">',
                                         '<i class="mdi mdi-tune mdi-18px" name="layersettings"></i>',
@@ -472,6 +605,9 @@ function interfaceWithMMGIS(fromInit) {
                                     '<div title="Information" class="LayersToolInfo" id="layerinfo' + F_.getSafeName(node[i].name) + '" stype="' + node[i].type + '" layername="' + node[i].name + '">',
                                         '<i class="mdi mdi-information-outline mdi-18px" name="layerinfo"></i>',
                                     '</div>',
+                                    (timeDisplay != '') ? ['<div class="time" id="timesettings' + F_.getSafeName(node[i].name) + '" stype="' + node[i].type + '" layername="' + node[i].name + '">',
+                                        '<i class="mdi mdi-clock mdi-18px" name="timesettings" style="color:' + node[i].time.status + '"></i>',
+                                    '</div>'].join('\n') : '',
                                 '</div>',
                                 '<div class="layerExport ' + node[i].type + '">',
                                     layerExport,
@@ -480,6 +616,12 @@ function interfaceWithMMGIS(fromInit) {
                                     timeDisplay,
                                 '</div>',
                                 '<div class="settings settingsmain' + node[i].type + '">',
+                                    '<div class="layerSettingsTitle">',
+                                        '<div>Layer Settings</div>',
+                                        '<div class="reset" title="Reset Settings">',
+                                            '<i class="mdi mdi-restore mdi-18px"></i>',
+                                        '</div>',
+                                    '</div>',
                                     settings,
                                 '</div>',
                             '</li>',
@@ -509,30 +651,36 @@ function interfaceWithMMGIS(fromInit) {
     }
 
     async function toggleLayer(checkbox) {
+        if (checkbox.hasClass('loading')) {
+            console.warn(
+                'LayersTool - Cannot toggle layer that is still loading.'
+            )
+            return
+        }
+
         let li = checkbox.parent().parent().parent()
         if (li.attr('type') !== 'header') {
             const layerName = li.attr('name')
 
             checkbox.addClass('loading')
-            await L_.toggleLayer(L_.layersNamed[layerName])
+            await L_.toggleLayer(L_.layers.data[layerName])
             checkbox.removeClass('loading')
 
             if (
                 quasiLayers.includes(li.attr('type')) ||
-                L_.layersGroup[layerName]
+                L_.layers.layer[layerName]
             )
                 checkbox.toggleClass('on')
             else if (
                 !quasiLayers.includes(li.attr('type')) &&
-                L_.layersGroup[layerName] == null
+                L_.layers.layer[layerName] == null
             )
                 li.addClass('layernotfound')
 
             if (checkbox.hasClass('on')) {
                 if (
-                    L_.layersGroupSublayers[layerName] &&
-                    Object.keys(L_.layersGroupSublayers[layerName]).length >
-                        0 &&
+                    L_.layers.attachments[layerName] &&
+                    Object.keys(L_.layers.attachments[layerName]).length > 0 &&
                     !$(
                         `#LayersTool${F_.getSafeName(
                             layerName
@@ -555,9 +703,9 @@ function interfaceWithMMGIS(fromInit) {
             // Dispatch `layerVisibilityChange` event
             let _event = new CustomEvent('layerVisibilityChange', {
                 detail: {
-                    layer: L_.layersNamed[layerName],
+                    layer: L_.layers.data[layerName],
                     layerName,
-                    visible: L_.toggledArray[layerName],
+                    visible: L_.layers.on[layerName],
                 },
             })
             document.dispatchEvent(_event)
@@ -623,7 +771,7 @@ function interfaceWithMMGIS(fromInit) {
                         if (stillUnder && $(item).attr('depth') > elmDepth) {
                             // Save state and then turn off
                             if (
-                                L_.toggledArray[$(item).attr('name')] &&
+                                L_.layers.on[$(item).attr('name')] &&
                                 $(item).attr('type') !== 'header'
                             ) {
                                 LayersTool._header_states[name].push(
@@ -713,34 +861,185 @@ function interfaceWithMMGIS(fromInit) {
         if (!wasOn) li.addClass('time_on')
     })
 
-    //Export GeoJSON
-    $('.layersToolExportGeoJSON').on('click', function () {
-        var li = $(this).parent().parent().parent().parent()
+    $('.layersToolExportGo').on('click', function () {
+        const li = $(this).parent().parent().parent().parent().parent()
 
-        let layerName = li.attr('name')
-        F_.downloadObject(
-            L_.convertGeoJSONLngLatsToPrimaryCoordinates(
-                L_.layersGroup[layerName].toGeoJSON(L_.GEOJSON_PRECISION)
-            ),
-            layerName,
-            '.json'
-        )
+        const layerUUID = li.attr('name')
+        const layerData = L_.layers.data[layerUUID] || {}
+        const layerDisplayName = layerData.display_name || layerUUID
+
+        let format = li.find('.layersToolExportFormat')
+        if (format) format = format.val() || 'geojson'
+        else format = 'geojson'
+        let extent = li.find('.layersToolExportExtent')
+        if (extent) extent = extent.val() || 'local'
+        else extent = 'local'
+        let coords = li.find('.layersToolExportCoords')
+        if (coords) coords = coords.val() || 'source'
+        else coords = 'source'
+
+        if (L_.layers.layer[layerUUID] === false) {
+            CursorInfo.update(
+                'Please turn layer on before exporting.',
+                6000,
+                true,
+                { x: 385, y: 6 },
+                '#e9ff26',
+                'black'
+            )
+            return
+        }
+
+        const download = (geojson) => {
+            let filename = layerDisplayName
+
+            if (coords != 'source')
+                geojson = L_.convertGeoJSONLngLatsToPrimaryCoordinates(geojson)
+
+            switch (format) {
+                case 'geojson':
+                    F_.downloadObject(geojson, filename, '.geojson')
+                    break
+                case 'kml':
+                    const kml = tokml(
+                        F_.geoJSONForceSimpleStyleSpec(
+                            geojson,
+                            true,
+                            L_.layers.data[layerUUID]?.style,
+                            layerData.useKeyAsName
+                        ),
+                        {
+                            name: layerData.useKeyAsName || false,
+                            description: 'Generated by MMGIS',
+                            timestamp:
+                                layerData.time?.enabled === true
+                                    ? layerData.time.endProp || null
+                                    : null,
+                            simplestyle: true,
+                        }
+                    )
+                    F_.downloadObject(kml, filename, '.kml', 'xml')
+                    break
+                case 'shp':
+                    const folder = filename
+
+                    calls.api(
+                        'proj42wkt',
+                        {
+                            proj4: window.mmgisglobal.customCRS.projString,
+                        },
+                        (data) => {
+                            shpwrite
+                                .zip(geojson, {
+                                    outputType: 'blob',
+                                    prj: data,
+                                })
+                                .then((content) => {
+                                    saveAs(content, `${folder}.zip`)
+                                })
+                        },
+                        function (err) {
+                            CursorInfo.update(
+                                `Failed to generate shapefile's .prj.`,
+                                6000,
+                                true,
+                                { x: 385, y: 6 },
+                                '#e9ff26',
+                                'black'
+                            )
+                        }
+                    )
+                    break
+                default:
+            }
+        }
+
+        const urlSplitRaw = (layerData.url || '').split(':')
+        const urlSplit = (layerData.url || '').toLowerCase().split(':')
+
+        if (extent === 'raw') {
+            if (urlSplit[0] === 'geodatasets') {
+                calls.api(
+                    'geodatasets_get',
+                    {
+                        layer: urlSplitRaw[1],
+                        type: 'geojson',
+                    },
+                    (data) => {
+                        download(data.body)
+                    },
+                    (data) => {
+                        CursorInfo.update(
+                            `Failed to download ${layerDisplayName}.`,
+                            6000,
+                            true,
+                            { x: 385, y: 6 },
+                            '#e9ff26',
+                            'black'
+                        )
+                        console.warn(
+                            'ERROR: ' +
+                                data.status +
+                                ' in LayersTool geodatasets_get:' +
+                                layerDisplayName +
+                                ' /// ' +
+                                data.message
+                        )
+                        return
+                    }
+                )
+            } else {
+                let layerUrl = layerData.url
+
+                if (!F_.isUrlAbsolute(layerUrl))
+                    layerUrl = L_.missionPath + layerUrl
+                $.getJSON(layerUrl, function (data) {
+                    if (data.hasOwnProperty('Features')) {
+                        data.features = data.Features
+                        delete data.Features
+                    }
+
+                    download(data)
+                }).fail(function (jqXHR, textStatus, errorThrown) {
+                    //Tell the console council about what happened
+                    console.warn(
+                        'ERROR! ' +
+                            textStatus +
+                            ' in ' +
+                            layerUrl +
+                            ' /// ' +
+                            errorThrown
+                    )
+                })
+            }
+        } else {
+            let geojson = L_.layers.layer[layerUUID].toGeoJSON(
+                L_.GEOJSON_PRECISION
+            )
+            download(geojson)
+        }
     })
-    //Export Source GeoJSON
-    $('.layersToolExportSourceGeoJSON').on('click', function () {
-        var li = $(this).parent().parent().parent().parent()
 
-        let layerName = li.attr('name')
-        F_.downloadObject(
-            L_.layersGroup[layerName].toGeoJSON(L_.GEOJSON_PRECISION),
-            layerName,
-            '.json'
-        )
+    //Refresh settings
+    $('.reload').on('click', function () {
+        const li = $(this).parent().parent()
+        let layer = li.attr('name')
+        layer = L_.asLayerUUID(layer)
+        layer = L_.layers.data[layer]
+        if (L_.layers.layer[layer.name] === null) return
+
+        if (layer.type === 'tile') {
+        } else {
+            if (layer.controlled !== true)
+                try {
+                    Map_.refreshLayer(layer)
+                } catch (err) {}
+        }
     })
 
     //Refresh settings
     $('.reset').on('click', function () {
-        var li = $(this).parent().parent()
+        const li = $(this).parent().parent().parent()
 
         L_.setLayerOpacity(li.attr('name'), 1)
         li.find('.transparencyslider').val(1)
@@ -777,11 +1076,12 @@ function interfaceWithMMGIS(fromInit) {
     })
 
     let tags = []
-    Object.keys(L_.layersNamed).forEach((l) => {
-        if (L_.layersNamed[l].tags) tags = tags.concat(L_.layersNamed[l].tags)
+    Object.keys(L_.layers.data).forEach((l) => {
+        if (L_.layers.data[l].tags) tags = tags.concat(L_.layers.data[l].tags)
     })
-    // Remove duplicates
+    // Remove duplicates, nulls and ""
     tags = tags.filter((c, idx) => {
+        if (c == null || c === '') return false
         return tags.indexOf(c) === idx
     })
 
@@ -870,7 +1170,7 @@ function interfaceWithMMGIS(fromInit) {
                 })
 
                 const layerName = $(that).attr('name')
-                const layerObj = L_.layersNamed[layerName]
+                const layerObj = L_.layers.data[layerName]
 
                 if (layerObj) {
                     //Look at description
@@ -922,14 +1222,19 @@ function interfaceWithMMGIS(fromInit) {
     })
 
     $('#searchLayers > #collapse').on('click', function () {
-        $('#layersToolList > li').each(function () {
-            if (
-                $(this).attr('type') == 'header' &&
-                $(this).attr('childrenon') == 'true'
-            ) {
-                LayersTool.toggleHeader($(this).attr('id'))
-            }
-        })
+        // Collapse deepest first
+        for (let depth = LayersTool._maxDepth; depth >= 0; depth--) {
+            $(`#layersToolList > li[type="header"][depth="${depth}"]`).each(
+                function () {
+                    if (
+                        $(this).attr('type') == 'header' &&
+                        $(this).attr('childrenon') == 'true'
+                    ) {
+                        LayersTool.toggleHeader($(this).attr('id'))
+                    }
+                }
+            )
+        }
     })
 
     $('#filterLayers .right > div').on('click', function () {
@@ -1179,7 +1484,8 @@ function interfaceWithMMGIS(fromInit) {
 
     function getVectorLayerSettings(layerName) {
         let currentOpacity = L_.getLayerOpacity(layerName)
-        if (currentOpacity == null) currentOpacity = L_.opacityArray[layerName]
+        if (currentOpacity == null)
+            currentOpacity = L_.layers.opacity[layerName]
 
         // prettier-ignore
         return [
@@ -1187,23 +1493,24 @@ function interfaceWithMMGIS(fromInit) {
                     '<li>',
                         '<div>',
                             '<div>Opacity</div>',
-                                '<input class="transparencyslider slider2" layername="' + layerName + '" type="range" min="0" max="1" step="0.01" value="' + currentOpacity + '" default="' + L_.opacityArray[layerName] + '">',
+                                '<input class="transparencyslider slider2" layername="' + layerName + '" type="range" min="0" max="1" step="0.01" value="' + currentOpacity + '" default="' + L_.layers.opacity[layerName] + '">',
                             '</div>',
-                            L_.layersGroupSublayers[layerName] ? `<div class="sublayerHeading">Composite Layers</div>` : null,
-                            L_.layersGroupSublayers[layerName] ? Object.keys(L_.layersGroupSublayers[layerName]).map(function(s) {
-                                return L_.layersGroupSublayers[layerName][s] === false ? '' : [
+                            L_.layers.attachments[layerName] ? `<div class="sublayerHeading">Composite Layers</div>` : null,
+                            L_.layers.attachments[layerName] ? Object.keys(L_.layers.attachments[layerName]).map(function(s) {
+                                return L_.layers.attachments[layerName][s] === false ? '' : [
                                     '<div class="sublayer">',
-                                        `<div title="${L_.layersGroupSublayers[layerName][s].title || ''}">${F_.prettifyName(s)}</div>`,
+                                        `<div title="${L_.layers.attachments[layerName][s].title || ''}">${F_.prettifyName(s)}</div>`,
                                         '<div style="display: flex;">',
-                                            L_.layersGroupSublayers[layerName][s].layer?.dropdown ? [
+                                            L_.layers.attachments[layerName][s].layer?.dropdown ? [
                                                 `<select class="dropdown sublayerDropdown" layername="${layerName}" sublayername="${s}">`,
-                                                    L_.layersGroupSublayers[layerName][s].layer?.dropdown.map((d) =>
-                                                        `<option value="${d}"${(d === L_.layersGroupSublayers[layerName][s].layer?.dropdownValue  ? ' selected' : '')}>${d}</option>`
+                                                    L_.layers.attachments[layerName][s].layer?.dropdown.map((d) =>
+                                                        `<option value="${d}"${(d === L_.layers.attachments[layerName][s].layer?.dropdownValue  ? ' selected' : '')}>${d}</option>`
                                                     ).join('\n'),
                                                 '</select>'
                                             ].join('\n') : null,
+                                            L_.layers.attachments[layerName][s].opacity != null ? `<input class="sublayeropacityslider slider2" layername="${layerName}" sublayername="${s}" type="range" min="0" max="1" step="0.01" value="${L_.layers.attachments[layerName][s].opacity}" style="width: 76px;"></input>` : null,
                                             '<div class="checkboxcont">',
-                                                `<div class="checkbox small ${(L_.layersGroupSublayers[layerName][s].on ? 'on' : 'off')}" layername="${layerName}" sublayername="${s}" style="margin: 7px 0px 7px 10px;"></div>`,
+                                                `<div class="checkbox small ${(L_.layers.attachments[layerName][s].on ? 'on' : 'off')}" layername="${layerName}" sublayername="${s}" style="margin: 7px 0px 7px 10px;"></div>`,
                                             '</div>',
                                         '</div>',
                                     '</div>'
@@ -1219,7 +1526,7 @@ function interfaceWithMMGIS(fromInit) {
         //Applies slider values to map layers
         $('.transparencyslider').off('input')
         $('.transparencyslider').on('input', function () {
-            var texttransp = $(this).val()
+            const texttransp = $(this).val()
             L_.setLayerOpacity($(this).attr('layername'), texttransp)
             $(this)
                 .parent()
@@ -1236,10 +1543,10 @@ function interfaceWithMMGIS(fromInit) {
                 $(this).val()
 
                 if (
-                    L_.layersGroupSublayers[layerName] &&
-                    L_.layersGroupSublayers[layerName][sublayerName]
+                    L_.layers.attachments[layerName] &&
+                    L_.layers.attachments[layerName][sublayerName]
                 ) {
-                    const l = L_.layersGroupSublayers[layerName][sublayerName]
+                    const l = L_.layers.attachments[layerName][sublayerName]
                     l.layer.dropdownFunc(
                         layerName,
                         sublayerName,
@@ -1249,6 +1556,18 @@ function interfaceWithMMGIS(fromInit) {
                 }
             }
         )
+
+        $(
+            '#layersToolList > li > .settings .sublayer .sublayeropacityslider'
+        ).off('input')
+        $(
+            '#layersToolList > li > .settings .sublayer .sublayeropacityslider'
+        ).on('input', function () {
+            const opacity = parseFloat($(this).val())
+            const layerName = $(this).attr('layername')
+            const sublayerName = $(this).attr('sublayername')
+            L_.setSublayerOpacity(layerName, sublayerName, opacity)
+        })
         //Makes sublayers clickable on and off
         $('#layersToolList > li > .settings .sublayer .checkbox').off('click')
         $('#layersToolList > li > .settings .sublayer .checkbox').on(
@@ -1260,10 +1579,10 @@ function interfaceWithMMGIS(fromInit) {
                 await L_.toggleSublayer(layerName, sublayerName)
 
                 if (
-                    L_.layersGroupSublayers[layerName] &&
-                    L_.layersGroupSublayers[layerName][sublayerName]
+                    L_.layers.attachments[layerName] &&
+                    L_.layers.attachments[layerName][sublayerName]
                 ) {
-                    if (L_.layersGroupSublayers[layerName][sublayerName].on)
+                    if (L_.layers.attachments[layerName][sublayerName].on)
                         $(this).addClass('on')
                     else $(this).removeClass('on')
                 }
